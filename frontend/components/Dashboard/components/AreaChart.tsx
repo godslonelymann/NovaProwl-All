@@ -4,7 +4,7 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
-import { aggregateByCategory } from "../chartUtils";
+import { safeAggregate } from "../chartSafeUtils"; // ⬅️ use the robust helper
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -25,18 +25,23 @@ type AreaChartProps = {
 };
 
 export default function AreaChart({ chart, data }: AreaChartProps) {
+  const agg = chart.agg || "sum";
+
   const { labels, values } = useMemo(
-    () => aggregateByCategory(data, chart.xField, chart.yField, chart.agg),
-    [data, chart.xField, chart.yField, chart.agg]
+    () => safeAggregate(data, chart.xField, chart.yField, agg),
+    [data, chart.xField, chart.yField, agg]
   );
 
-  if (!labels.length) {
+  if (!labels.length || !values.length) {
     return (
       <p className="text-xs text-gray-400">
         Not enough data to render this area chart.
       </p>
     );
   }
+
+  const aggLabel = agg.toUpperCase();
+  const yTitle = chart.yField ? `${aggLabel} of ${chart.yField}` : aggLabel;
 
   return (
     <Plot
@@ -59,7 +64,7 @@ export default function AreaChart({ chart, data }: AreaChartProps) {
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
         xaxis: { title: chart.xField },
-        yaxis: { title: `${chart.agg.toUpperCase()} of ${chart.yField}` },
+        yaxis: { title: yTitle },
       }}
       useResizeHandler
       style={{ width: "100%", height: 260 }}

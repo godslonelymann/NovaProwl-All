@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { ChartConfig, ChartType, AggType } from "../chartTypes";
 
@@ -95,7 +95,7 @@ const EditChartModal: React.FC<EditChartModalProps> = ({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+              className="w-full text-black/60 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
             />
           </div>
 
@@ -108,13 +108,23 @@ const EditChartModal: React.FC<EditChartModalProps> = ({
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value as ChartType)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                className="w-full rounded-lg text-black/60 border border-gray-200 px-3 py-2 text-sm bg-white"
               >
                 <option value="bar">Bar Chart</option>
                 <option value="line">Line Chart</option>
                 <option value="pie">Pie Chart</option>
                 <option value="donut">Donut Chart</option>
-                {/* keep in sync with chartTypes if you add more */}
+                {/* 🔹 keep in sync with chartTypes & AddChartModal */}
+                <option value="scatter">Scatter Chart</option>
+                <option value="area">Area Chart</option>
+                <option value="heatmap">Heatmap</option>
+                <option value="funnel">Funnel Chart</option>
+                <option value="sunburst">Sunburst Chart</option>
+                <option value="histogram">Histogram</option>
+                <option value="radar">Radar Chart</option>
+                <option value="bubble">Bubble Chart</option>
+                <option value="treemap">Treemap</option>
+                <option value="box">Box Plot</option>
               </select>
             </div>
 
@@ -125,7 +135,7 @@ const EditChartModal: React.FC<EditChartModalProps> = ({
               <select
                 value={agg}
                 onChange={(e) => setAgg(e.target.value as AggType)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                className="w-full rounded-lg text-black/60 border border-gray-200 px-3 py-2 text-sm bg-white"
               >
                 <option value="sum">Sum</option>
                 <option value="avg">Average</option>
@@ -143,7 +153,7 @@ const EditChartModal: React.FC<EditChartModalProps> = ({
               <select
                 value={xField}
                 onChange={(e) => setXField(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                className="w-full rounded-lg text-black/60 border border-gray-200 px-3 py-2 text-sm bg-white"
               >
                 <option value="">Select column</option>
                 {categoricalCols.map((c) => (
@@ -161,7 +171,7 @@ const EditChartModal: React.FC<EditChartModalProps> = ({
               <select
                 value={yField}
                 onChange={(e) => setYField(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                className="w-full rounded-lg text-black/60 border border-gray-200 px-3 py-2 text-sm bg-white"
               >
                 <option value="">Select numeric column</option>
                 {numericCols.map((c) => (

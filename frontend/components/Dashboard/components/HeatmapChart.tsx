@@ -4,7 +4,8 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
-import { aggregateByCategory } from "../chartUtils";
+// ✅ Use robust aggregator instead of aggregateByCategory
+import { safeAggregate } from "../chartSafeUtils";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -15,7 +16,7 @@ type HeatmapChartProps = {
 
 export default function HeatmapChart({ chart, data }: HeatmapChartProps) {
   const { labels, values } = useMemo(
-    () => aggregateByCategory(data, chart.xField, chart.yField, chart.agg),
+    () => safeAggregate(data, chart.xField, chart.yField, chart.agg),
     [data, chart.xField, chart.yField, chart.agg]
   );
 
@@ -36,7 +37,7 @@ export default function HeatmapChart({ chart, data }: HeatmapChartProps) {
         {
           z,
           x: labels,
-          y: [chart.yField || chart.agg.toUpperCase()],
+          y: [chart.yField || chart.agg?.toUpperCase?.() || "Value"],
           type: "heatmap",
           colorscale: "Blues",
           showscale: true,

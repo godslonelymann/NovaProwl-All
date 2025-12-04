@@ -4,7 +4,7 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
-import { aggregateByCategory } from "../chartUtils";
+import { safeAggregate } from "../chartSafeUtils"; // ✅ robust aggregator
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -25,9 +25,11 @@ type RadarChartProps = {
 };
 
 export default function RadarChart({ chart, data }: RadarChartProps) {
+  const agg = chart.agg || "sum";
+
   const { labels, values } = useMemo(
-    () => aggregateByCategory(data, chart.xField, chart.yField, chart.agg),
-    [data, chart.xField, chart.yField, chart.agg]
+    () => safeAggregate(data, chart.xField, chart.yField, agg),
+    [data, chart.xField, chart.yField, agg]
   );
 
   if (!labels.length || !values.length) {

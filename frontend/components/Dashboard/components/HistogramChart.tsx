@@ -13,12 +13,33 @@ type HistogramChartProps = {
 };
 
 export default function HistogramChart({ chart, data }: HistogramChartProps) {
-  // For histogram we mostly care about a single numeric field.
-  // Prefer yField if present, otherwise fall back to xField.
-  const numericField = chart.yField || chart.xField;
+  // Try using yField → else xField → else auto-detect first numeric column
+  let numericField = chart.yField || chart.xField;
+
+  // Auto-detect numeric fallback
+  const numericFallback = useMemo(() => {
+    if (!data.length) return null;
+
+    const sample = data[0];
+    return Object.keys(sample).find((col) =>
+      typeof sample[col] === "number" ||
+      (!isNaN(Number(sample[col])) && sample[col] !== "")
+    );
+  }, [data]);
+
+  // Final fallback if chosen field is not numeric
+  const isChartFieldNumeric =
+    numericField &&
+    data.some((row) => !isNaN(Number(row[numericField])));
+
+  if (!isChartFieldNumeric) {
+    numericField = numericFallback || "";
+  }
 
   const values = useMemo(() => {
     const nums: number[] = [];
+
+    if (!numericField) return nums;
 
     for (const row of data) {
       const raw = row[numericField];

@@ -4,7 +4,8 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
-import { aggregateByCategory } from "../chartUtils";
+// import { aggregateByCategory } from "../chartUtils";
+import { safeAggregate } from "../chartSafeUtils";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -26,12 +27,16 @@ type BarChartProps = {
 };
 
 export default function BarChart({ chart, data }: BarChartProps) {
+  // 🔥 Make agg always safe
+  const agg = chart.agg || "sum";
+
+  // 🔥 Use safeAggregate instead of aggregateByCategory
   const { labels, values } = useMemo(
-    () => aggregateByCategory(data, chart.xField, chart.yField, chart.agg),
-    [data, chart.xField, chart.yField, chart.agg]
+    () => safeAggregate(data, chart.xField, chart.yField, agg),
+    [data, chart.xField, chart.yField, agg]
   );
 
-  if (!labels.length) {
+  if (!labels.length || !values.length) {
     return (
       <p className="text-xs text-gray-400">
         Not enough data to render this bar chart.
@@ -39,10 +44,9 @@ export default function BarChart({ chart, data }: BarChartProps) {
     );
   }
 
-  const yTitle =
-    chart.agg === "count"
-      ? `COUNT of ${chart.yField}`
-      : `${chart.agg.toUpperCase()} of ${chart.yField}`;
+  const yTitle = chart.yField
+    ? `${agg.toUpperCase()} of ${chart.yField}`
+    : agg.toUpperCase();
 
   return (
     <Plot

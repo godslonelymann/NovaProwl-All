@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AnalysisPanel from "@/components/AnalysisPanel";
 import Sidebar from "@/components/Sidebar";
-import { useSessionStore } from "@/components/SessionStore"; // 🔹 NEW
+import { useSessionStore } from "@/components/SessionStore";
 
 const BACKEND = (process.env.NEXT_PUBLIC_BACKEND || "http://localhost:8000").replace(
   /\/+$/,
@@ -13,10 +13,20 @@ const BACKEND = (process.env.NEXT_PUBLIC_BACKEND || "http://localhost:8000").rep
 
 type Row = Record<string, any>;
 
+// 🔹 NEW: same shape we used in MainInterface & AnalysisPanel
+type UploadedDataset = {
+  id: string;
+  fileName: string;
+  rows: Row[];
+};
+
 export default function AnalysisPage() {
   const [data, setData] = useState<Row[] | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [prompt, setPrompt] = useState<string>("");
+
+  // 🔹 NEW: hold ALL datasets for this session
+  const [datasets, setDatasets] = useState<UploadedDataset[]>([]);
 
   // sidebar state for the *fallback* screen
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -39,19 +49,43 @@ export default function AnalysisPage() {
           const raw = localStorage.getItem(
             `novaprowl_session_data_v1_${activeSessionId}`
           );
-          if (raw) {
-            const parsed = JSON.parse(raw) as {
-              fileName?: string;
-              data: Row[];
-              initialPrompt?: string;
-            };
 
-            setData(parsed.data || []);
-            setFileName(
-              parsed.fileName || session.fileName || "Data Summary Request"
-            );
-            setPrompt(parsed.initialPrompt || session.firstPrompt || "");
-            return; // ✅ we’re done; don’t fall back
+          if (raw) {
+            const parsed = JSON.parse(raw);
+
+            // 🔹 NEW SCHEMA: { datasets: UploadedDataset[], initialPrompt? }
+            if (Array.isArray(parsed.datasets) && parsed.datasets.length > 0) {
+              const dsArray = parsed.datasets as UploadedDataset[];
+              setDatasets(dsArray);
+
+              const primary = dsArray[0];
+              setData(primary.rows || []);
+              setFileName(primary.fileName || session.fileName || "Data Summary Request");
+              setPrompt(parsed.initialPrompt || session.firstPrompt || "");
+              return; // ✅ we’re done; don’t fall back
+            }
+
+            // 🔹 OLD SCHEMA: { fileName?: string; data: Row[]; initialPrompt? }
+            if (Array.isArray(parsed.data)) {
+              const rows = parsed.data as Row[];
+              const legacyFileName =
+                parsed.fileName || session.fileName || "Data Summary Request";
+
+              setData(rows);
+              setFileName(legacyFileName);
+              setPrompt(parsed.initialPrompt || session.firstPrompt || "");
+
+              // also wrap legacy data into a single-dataset array
+              setDatasets([
+                {
+                  id: "legacy-dataset",
+                  fileName: legacyFileName,
+                  rows,
+                },
+              ]);
+
+              return; // ✅ handled via legacy path
+            }
           }
         } catch (e) {
           console.error("Failed to load analysis data from localStorage", e);
@@ -71,7 +105,16 @@ export default function AnalysisPage() {
         setFileName(file);
         setPrompt(q);
 
-        // 🔹 NEW: also sync dataset to backend so /api/query works
+        // 🔹 also wrap as single dataset for pill component
+        setDatasets([
+          {
+            id: "fallback-session-storage",
+            fileName: file,
+            rows: parsed,
+          },
+        ]);
+
+        // 🔹 legacy: sync dataset to backend so /api/query works
         const cols = parsed.length ? Object.keys(parsed[0]) : [];
 
         fetch(`${BACKEND}/api/sync-dataset`, {
@@ -91,7 +134,8 @@ export default function AnalysisPage() {
     } catch (e) {
       console.error("Failed to load analysis data from sessionStorage", e);
     }
-  }, []);
+  }, [activeSessionId, sessions]);
+
   // ✅ If we DO have data + filename, use the full AnalysisPanel (which already has Sidebar inside)
   if (data && fileName) {
     return (
@@ -99,6 +143,7 @@ export default function AnalysisPage() {
         fileName={fileName}
         data={data}
         initialPrompt={prompt}
+        datasets={datasets}  // 🔹 PASS ALL DATASETS TO ANALYSIS PANEL
       />
     );
   }

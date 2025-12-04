@@ -9,8 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "lucide-react": "^0.553.0",
-    "next": "16.0.3",
+    "next": "^16.0.7",
     "papaparse": "^5.5.3",
     "plotly.js": "^3.3.0",
     "plotly.js-basic-dist": "^3.3.0",

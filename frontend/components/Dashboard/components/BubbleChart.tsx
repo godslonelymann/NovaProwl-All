@@ -4,7 +4,10 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
-import { aggregateByCategory } from "../chartUtils";
+// ❌ OLD
+// import { aggregateByCategory } from "../chartUtils";
+// ✅ NEW
+import { safeAggregate } from "../chartSafeUtils";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -26,7 +29,7 @@ type BubbleChartProps = {
 
 export default function BubbleChart({ chart, data }: BubbleChartProps) {
   const { labels, values } = useMemo(
-    () => aggregateByCategory(data, chart.xField, chart.yField, chart.agg),
+    () => safeAggregate(data, chart.xField, chart.yField, chart.agg),
     [data, chart.xField, chart.yField, chart.agg]
   );
 
@@ -38,15 +41,32 @@ export default function BubbleChart({ chart, data }: BubbleChartProps) {
     );
   }
 
+  // 🔹 Ensure numeric & nicely scaled bubble sizes
+  const numericValues = values.map((v) =>
+    typeof v === "number" && Number.isFinite(v) ? v : 0
+  );
+  const max = Math.max(...numericValues, 0);
+
+  const sizes = numericValues.map((v) => {
+    if (max <= 0) return 12; // fallback size
+    const normalized = v / max;           // 0 → 1
+    return 10 + normalized * 30;          // 10–40px bubble size
+  });
+
+  const yTitle =
+    chart.agg === "count"
+      ? `COUNT of ${chart.yField || chart.xField}`
+      : `${(chart.agg || "value").toUpperCase()} of ${chart.yField || chart.xField}`;
+
   return (
     <Plot
       data={[
         {
           x: labels,
-          y: values,
+          y: numericValues,
           mode: "markers",
           marker: {
-            size: values.map((v) => Math.max(10, v)), // bubble size
+            size: sizes,
             color: labels.map((_, i) => PALETTE[i % PALETTE.length]),
             opacity: 0.7,
           },
@@ -59,7 +79,7 @@ export default function BubbleChart({ chart, data }: BubbleChartProps) {
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
         xaxis: { title: chart.xField },
-        yaxis: { title: `${chart.agg.toUpperCase()} → ${chart.yField}` },
+        yaxis: { title: yTitle },
       }}
       useResizeHandler
       style={{ width: "100%", height: 260 }}

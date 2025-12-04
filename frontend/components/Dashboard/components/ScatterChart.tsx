@@ -4,7 +4,7 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
-import { aggregateByCategory } from "../chartUtils";
+import { safeAggregate } from "../chartSafeUtils"; // ✅ use robust aggregator
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -26,9 +26,11 @@ type ScatterChartProps = {
 
 export default function ScatterChart({ chart, data }: ScatterChartProps) {
   // For scatter we treat x = labels, y = values (same aggregation logic)
+  const agg = chart.agg || "sum";
+
   const { labels, values } = useMemo(
-    () => aggregateByCategory(data, chart.xField, chart.yField, chart.agg),
-    [data, chart.xField, chart.yField, chart.agg]
+    () => safeAggregate(data, chart.xField, chart.yField, agg),
+    [data, chart.xField, chart.yField, agg]
   );
 
   if (!labels.length || !values.length) {
@@ -38,6 +40,11 @@ export default function ScatterChart({ chart, data }: ScatterChartProps) {
       </p>
     );
   }
+
+  const yTitle =
+    agg === "count"
+      ? `COUNT of ${chart.yField}`
+      : `${agg.toUpperCase()} of ${chart.yField}`;
 
   return (
     <Plot
@@ -59,7 +66,7 @@ export default function ScatterChart({ chart, data }: ScatterChartProps) {
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
         xaxis: { title: chart.xField },
-        yaxis: { title: `${chart.agg.toUpperCase()} of ${chart.yField}` },
+        yaxis: { title: yTitle },
       }}
       useResizeHandler
       style={{ width: "100%", height: 260 }}

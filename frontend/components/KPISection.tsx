@@ -21,6 +21,17 @@ export type KPIConfig = {
 type KPISectionProps = {
   data: Row[];
   columns: string[];
+
+  // 🔹 NEW: optional AI-suggested KPIs from backend
+  suggestedKpis?: {
+    id?: string;
+    label: string;
+    value: number;
+    format?: string;
+    unit?: string;
+    trend?: string;
+    description?: string;
+  }[];
 };
 
 const STORAGE_KEY = "kpi_configs_v1";
@@ -124,12 +135,43 @@ const calcOptions: CalcType[] = [
   "countDistinct",
 ];
 
-export default function KPISection({ data, columns }: KPISectionProps) {
+export default function KPISection({
+  data,
+  columns,
+  suggestedKpis,
+}: KPISectionProps) {
   const [kpis, setKpis] = useState<KPIConfig[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftColumn, setDraftColumn] = useState("");
   const [draftCalc, setDraftCalc] = useState<CalcType>("sum");
+
+  // -------------------------------------------------------------
+  // 🔹 NEW: Convert backend KPIs → internal KPIConfig
+  // -------------------------------------------------------------
+  const aiKpis: KPIConfig[] = useMemo(() => {
+    if (!suggestedKpis || suggestedKpis.length === 0) return [];
+
+    return suggestedKpis.map((k, index) => ({
+      id: k.id || `ai-kpi-${index}`,
+      name: k.label,
+      column: "__ai_static_value__", // virtual column; value comes from backend
+      calc: "sum",
+      icon: "gauge",
+      accentColor: "from-indigo-500 to-indigo-400",
+    }));
+  }, [suggestedKpis]);
+
+  // 🔹 NEW: Values map for AI KPIs
+  const aiKpiValues = useMemo(() => {
+    if (!suggestedKpis) return {};
+    const map: Record<string, number> = {};
+    suggestedKpis.forEach((k, index) => {
+      const id = k.id || `ai-kpi-${index}`;
+      map[id] = k.value ?? 0;
+    });
+    return map;
+  }, [suggestedKpis]);
 
   // ---------- Initialize KPIs (dynamic defaults based on dataset) ----------
   useEffect(() => {
@@ -253,8 +295,7 @@ export default function KPISection({ data, columns }: KPISectionProps) {
     if (!draftColumn) return;
 
     const name =
-      draftName.trim() ||
-      `${calcLabels[draftCalc]} of ${draftColumn}`;
+      draftName.trim() || `${calcLabels[draftCalc]} of ${draftColumn}`;
 
     const newKPI: KPIConfig = {
       id: `kpi-${Date.now()}`,
@@ -296,8 +337,11 @@ export default function KPISection({ data, columns }: KPISectionProps) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {kpis.map((kpi, idx) => {
-          const value = kpiValues[kpi.id] ?? 0;
+        {[...aiKpis, ...kpis].map((kpi, idx) => {
+          const value =
+            kpi.column === "__ai_static_value__"
+              ? aiKpiValues[kpi.id]
+              : kpiValues[kpi.id] ?? 0;
           const gradient = kpi.accentColor;
 
           return (

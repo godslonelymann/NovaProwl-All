@@ -90,7 +90,7 @@ const AddChartModal: React.FC<AddChartModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter chart name"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+              className="w-full rounded-lg border border-gray-200 text-black px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
             />
           </div>
 
@@ -103,13 +103,23 @@ const AddChartModal: React.FC<AddChartModalProps> = ({
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value as ChartType)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                className="w-full rounded-lg border border-gray-200 text-black/60 px-3 py-2  text-sm bg-white"
               >
                 <option value="bar">Bar Chart</option>
                 <option value="line">Line Chart</option>
                 <option value="pie">Pie Chart</option>
                 <option value="donut">Donut Chart</option>
-                {/* if your chartTypes has more, you can add them here later */}
+                {/* 🔹 Added all other chart types you support */}
+                <option value="scatter">Scatter Chart</option>
+                <option value="area">Area Chart</option>
+                <option value="heatmap">Heatmap</option>
+                <option value="funnel">Funnel Chart</option>
+                <option value="sunburst">Sunburst Chart</option>
+                <option value="histogram">Histogram</option>
+                <option value="radar">Radar Chart</option>
+                <option value="bubble">Bubble Chart</option>
+                <option value="treemap">Treemap</option>
+                <option value="box">Box Plot</option>
               </select>
             </div>
 
@@ -120,7 +130,7 @@ const AddChartModal: React.FC<AddChartModalProps> = ({
               <select
                 value={agg}
                 onChange={(e) => setAgg(e.target.value as AggType)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                className="w-full rounded-lg border border-gray-200 text-black/60 px-3 py-2 text-sm bg.white"
               >
                 <option value="sum">Sum</option>
                 <option value="avg">Average</option>
@@ -138,7 +148,7 @@ const AddChartModal: React.FC<AddChartModalProps> = ({
               <select
                 value={xField}
                 onChange={(e) => setXField(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                className="w-full rounded-lg border border-gray-200 text-black/60 px-3 py-2 text-sm bg-white"
               >
                 <option value="">Select column</option>
                 {categoricalCols.map((c) => (
@@ -150,13 +160,13 @@ const AddChartModal: React.FC<AddChartModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label className="block text-xs font-medium  text-gray-600 mb-1">
                 Y-axis / Value Field
               </label>
               <select
                 value={yField}
                 onChange={(e) => setYField(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                className="w-full rounded-lg border border-gray-200 text-black/60 px-3 py-2 text-sm bg-white"
               >
                 <option value="">Select numeric column</option>
                 {numericCols.map((c) => (

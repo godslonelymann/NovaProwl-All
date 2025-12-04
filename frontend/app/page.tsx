@@ -1,12 +1,7 @@
-import Dashboard from "@/components/Dashboard";
-import MainInterface from "@/components/MainInterface";
-import Image from "next/image";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <>
-      {/* <Dashboard /> */}
-      <MainInterface />
-    </>
-  );
+  redirect("/mainInterface");
+
+  return null;
 }

@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
+import { safeAggregate } from "../chartSafeUtils"; // ✅ robust aggregator
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -24,48 +25,19 @@ type SunburstChartProps = {
 };
 
 export default function SunburstChart({ chart, data }: SunburstChartProps) {
-  const { xField, yField, agg } = chart;
+  const { xField, yField } = chart;
+  const agg = chart.agg || "sum";
 
   const { labels, values } = useMemo(() => {
-    if (!xField || !yField) {
+    if (!xField) {
       return { labels: [] as string[], values: [] as number[] };
     }
 
-    const map = new Map<string, { sum: number; count: number }>();
-
-    for (const row of data) {
-      const cat = String(row[xField] ?? "Unknown");
-      const raw = row[yField];
-      const v =
-        typeof raw === "number"
-          ? raw
-          : raw !== undefined && raw !== null
-          ? Number(raw)
-          : NaN;
-
-      if (Number.isNaN(v)) continue;
-
-      if (!map.has(cat)) map.set(cat, { sum: 0, count: 0 });
-      const curr = map.get(cat)!;
-      curr.sum += v;
-      curr.count += 1;
-    }
-
-    const labels: string[] = [];
-    const values: number[] = [];
-
-    for (const [cat, { sum, count }] of map.entries()) {
-      let val = sum;
-      if (agg === "avg") val = count === 0 ? 0 : sum / count;
-      if (agg === "count") val = count;
-      labels.push(cat);
-      values.push(val);
-    }
-
-    return { labels, values };
+    // ✅ Use the same safe aggregator as other charts
+    return safeAggregate(data, xField, yField, agg);
   }, [data, xField, yField, agg]);
 
-  if (!labels.length) {
+  if (!labels.length || !values.length) {
     return (
       <p className="text-xs text-gray-400">
         Not enough data to render sunburst chart.
@@ -73,7 +45,8 @@ export default function SunburstChart({ chart, data }: SunburstChartProps) {
     );
   }
 
-  const parents = labels.map(() => ""); // single-level sunburst
+  // Single-level sunburst: every node has empty parent
+  const parents = labels.map(() => "");
 
   return (
     <Plot

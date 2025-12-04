@@ -4,7 +4,10 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
-import { aggregateByCategory } from "../chartUtils";
+// ❌ OLD
+// import { aggregateByCategory } from "../chartUtils";
+// ✅ NEW
+import { safeAggregate } from "../chartSafeUtils";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -26,11 +29,11 @@ type DonutChartProps = {
 
 export default function DonutChart({ chart, data }: DonutChartProps) {
   const { labels, values } = useMemo(
-    () => aggregateByCategory(data, chart.xField, chart.yField, chart.agg),
+    () => safeAggregate(data, chart.xField, chart.yField, chart.agg),
     [data, chart.xField, chart.yField, chart.agg]
   );
 
-  if (!labels.length) {
+  if (!labels.length || !values.length) {
     return (
       <p className="text-xs text-gray-400">
         Not enough data to render this donut chart.

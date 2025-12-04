@@ -4,7 +4,7 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
-import { aggregateByCategory } from "../chartUtils";
+import { safeAggregate } from "../chartSafeUtils";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -26,7 +26,8 @@ type PieChartProps = {
 
 export default function PieChart({ chart, data }: PieChartProps) {
   const { labels, values } = useMemo(
-    () => aggregateByCategory(data, chart.xField, chart.yField, chart.agg),
+    () =>
+      safeAggregate(data, chart.xField, chart.yField, chart.agg || "sum"),
     [data, chart.xField, chart.yField, chart.agg]
   );
 
@@ -49,7 +50,7 @@ export default function PieChart({ chart, data }: PieChartProps) {
           marker: {
             colors: labels.map((_, i) => PALETTE[i % PALETTE.length]),
           },
-        } as any,
+        },
       ]}
       layout={{
         autosize: true,

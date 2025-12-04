@@ -4,7 +4,8 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
-import { aggregateByCategory } from "../chartUtils";
+// 🔹 Use the robust aggregator instead of aggregateByCategory
+import { safeAggregate } from "../chartSafeUtils";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -25,12 +26,14 @@ type LineChartProps = {
 };
 
 export default function LineChart({ chart, data }: LineChartProps) {
+  const agg = chart.agg || "sum";
+
   const { labels, values } = useMemo(
-    () => aggregateByCategory(data, chart.xField, chart.yField, chart.agg),
-    [data, chart.xField, chart.yField, chart.agg]
+    () => safeAggregate(data, chart.xField, chart.yField, agg),
+    [data, chart.xField, chart.yField, agg]
   );
 
-  if (!labels.length) {
+  if (!labels.length || !values.length) {
     return (
       <p className="text-xs text-gray-400">
         Not enough data to render this line chart.
@@ -38,10 +41,11 @@ export default function LineChart({ chart, data }: LineChartProps) {
     );
   }
 
+  const metricLabel = chart.yField || chart.xField || "";
   const yTitle =
-    chart.agg === "count"
-      ? `COUNT of ${chart.yField}`
-      : `${chart.agg.toUpperCase()} of ${chart.yField}`;
+    agg === "count"
+      ? `COUNT of ${metricLabel}`
+      : `${agg.toUpperCase()} of ${metricLabel}`;
 
   return (
     <Plot

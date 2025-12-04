@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,6 +12,8 @@ import {
   FunctionSquare,
   FileText,
   PlugZap,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 
 type SidebarProps = {
@@ -30,6 +32,9 @@ type SidebarProps = {
 
   // when a recent chat is clicked
   onSelectChat?: (chatTitle: string) => void;
+
+  onChatsEmpty?: () => void;    // ✅ NEW
+
 };
 
 const spaces = [
@@ -40,6 +45,8 @@ const tools = [
   { icon: FunctionSquare, label: "OCR Tool" },
   { icon: FileText, label: "Data Cleaner Tool" },
 ];
+
+const STORAGE_KEY = "novaprowl_sidebar_chats_v2";
 
 export default function Sidebar({
   sidebarOpen,
@@ -53,7 +60,84 @@ export default function Sidebar({
   activeTool,
   onToolClick,
   onSelectChat,
+  onChatsEmpty,
 }: SidebarProps) {
+  // ✅ Local sidebar chat titles (independent of parent state)
+  const [chatTitles, setChatTitles] = useState<string[]>([]);
+
+  // ✅ Load from localStorage OR initial recentChats
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // use stored chats only if it's a non-empty array
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setChatTitles(parsed);
+          return;
+        }
+      }
+
+      // fallback to prop recentChats when no valid stored chats
+      if (recentChats && recentChats.length > 0) {
+        setChatTitles(recentChats);
+      }
+    } catch (err) {
+      console.error("Failed to load sidebar chats:", err);
+      // on error, still try to use recentChats
+      if (recentChats && recentChats.length > 0) {
+        setChatTitles(recentChats);
+      }
+    }
+  }, [recentChats]); // 🔹 depend on recentChats so first title shows up
+
+  // Persist sidebar chat titles
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(chatTitles));
+    } catch (err) {
+      console.error("Failed to save sidebar chats:", err);
+    }
+  }, [chatTitles]);
+
+  // Rename a chat title
+  const handleRenameChat = (index: number) => {
+    const current = chatTitles[index];
+    const next = window.prompt("Rename chat", current || "Untitled");
+    if (next === null) return; // cancelled
+    const trimmed = next.trim();
+    if (!trimmed) return;
+
+    setChatTitles((prev) => {
+      const copy = [...prev];
+      copy[index] = trimmed;
+      return copy;
+    });
+  };
+
+  // Delete a chat title
+  const handleDeleteChat = (index: number) => {
+  const title = chatTitles[index];
+  const ok = window.confirm(
+    `Delete chat "${title || "Untitled"}"? This cannot be undone.`
+  );
+  if (!ok) return;
+
+  setChatTitles((prev) => {
+    const updated = prev.filter((_, i) => i !== index);
+
+    // 🔥 NEW: if no chats left → notify parent to redirect
+    if (updated.length === 0 && onChatsEmpty) {
+      setTimeout(() => onChatsEmpty(), 50);
+    }
+
+    return updated;
+  });
+};
+
   return (
     <div
       className={`relative border-r border-slate-200 bg-white flex flex-col transition-all duration-300 ease-out
@@ -97,10 +181,9 @@ export default function Sidebar({
               <button
                 key={item.label}
                 className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm cursor-pointer transition-colors
-                  ${
-                    isActive
-                      ? "bg-slate-200 text-slate-900"  // 🔹 light gray active
-                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                  ${isActive
+                    ? "bg-slate-200 text-slate-900"  // 🔹 light gray active
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                   }`}
                 onClick={() => onSpaceChange?.(item.label)}
               >
@@ -128,10 +211,9 @@ export default function Sidebar({
               <button
                 key={item.label}
                 className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm cursor-pointer transition-colors
-                  ${
-                    isActive
-                      ? "bg-slate-200 text-slate-900"  // 🔹 light gray active
-                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                  ${isActive
+                    ? "bg-slate-200 text-slate-900"  // 🔹 light gray active
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                   }`}
                 onClick={() => onToolClick?.(item.label)}
               >
@@ -145,21 +227,46 @@ export default function Sidebar({
 
       {/* Recent chats */}
       <div className="px-3 flex-1 overflow-hidden">
-        {sidebarOpen && recentChats.length > 0 && (  /* 🔹 only show when there are chats */
+        {sidebarOpen && chatTitles.length > 0 && (  /* 🔹 only show when there are chats */
           <>
             <p className="text-sm text-slate-700 mb-1">
               Recent chats
             </p>
             <div className="space-y-1 text-sm text-slate-500 overflow-y-auto pr-1">
-              {recentChats.map((chat, idx) => (
-                <button
-                  key={idx}
-                  className="w-full truncate text-left rounded-lg px-3 py-2 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
-                  title={chat}
-                  onClick={() => onSelectChat?.(chat)}
+              {chatTitles.map((chat, idx) => (
+                <div
+                  key={`${chat}-${idx}`}
+                  className="w-full flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-slate-100"
                 >
-                  {chat}
-                </button>
+                  {/* Main clickable area to select chat */}
+                  <button
+                    className="flex-1 truncate text-left px-1 py-1 hover:text-slate-700"
+                    title={chat}
+                    onClick={() => onSelectChat?.(chat)}
+                  >
+                    {chat || "Untitled chat"}
+                  </button>
+
+                  {/* Rename button */}
+                  <button
+                    className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-slate-200 text-slate-500"
+                    title="Rename chat"
+                    type="button"
+                    onClick={() => handleRenameChat(idx)}
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+
+                  {/* Delete button */}
+                  <button
+                    className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-slate-200 text-slate-500"
+                    title="Delete chat"
+                    type="button"
+                    onClick={() => handleDeleteChat(idx)}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
               ))}
             </div>
           </>

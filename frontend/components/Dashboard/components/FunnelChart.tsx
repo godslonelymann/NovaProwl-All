@@ -4,6 +4,8 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 import { Row, ChartConfig } from "../chartTypes";
+// ✅ Use the same safe aggregator as other charts
+import { safeAggregate } from "../chartSafeUtils";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -27,52 +29,25 @@ export default function FunnelChart({ chart, data }: FunnelChartProps) {
   const { xField, yField, agg } = chart;
 
   const { labels, values } = useMemo(() => {
+    // If we don't even know which columns to use, bail out early
     if (!xField || !yField) {
       return { labels: [] as string[], values: [] as number[] };
     }
 
-    const map = new Map<string, { sum: number; count: number }>();
+    // 1️⃣ Use safeAggregate to handle strings, nulls, mixed types, etc.
+    const base = safeAggregate(data, xField, yField, agg);
 
-    for (const row of data) {
-      const cat = String(row[xField] ?? "Unknown");
-      const raw = row[yField];
-      const v =
-        typeof raw === "number"
-          ? raw
-          : raw !== undefined && raw !== null
-          ? Number(raw)
-          : NaN;
-
-      if (Number.isNaN(v)) continue;
-
-      if (!map.has(cat)) map.set(cat, { sum: 0, count: 0 });
-      const curr = map.get(cat)!;
-      curr.sum += v;
-      curr.count += 1;
-    }
-
-    const labels: string[] = [];
-    const values: number[] = [];
-
-    for (const [cat, { sum, count }] of map.entries()) {
-      let val = sum;
-      if (agg === "avg") val = count === 0 ? 0 : sum / count;
-      if (agg === "count") val = count;
-      labels.push(cat);
-      values.push(val);
-    }
-
-    // Optional: sort descending so funnel shape looks nicer
-    const indices = labels.map((_, i) => i);
-    indices.sort((a, b) => values[b] - values[a]);
+    // 2️⃣ Sort descending so funnel visually makes sense
+    const indices = base.labels.map((_, i) => i);
+    indices.sort((a, b) => base.values[b] - base.values[a]);
 
     return {
-      labels: indices.map((i) => labels[i]),
-      values: indices.map((i) => values[i]),
+      labels: indices.map((i) => base.labels[i]),
+      values: indices.map((i) => base.values[i]),
     };
   }, [data, xField, yField, agg]);
 
-  if (!labels.length) {
+  if (!labels.length || !values.length) {
     return (
       <p className="text-xs text-gray-400">
         Not enough data to render funnel chart.
@@ -99,7 +74,7 @@ export default function FunnelChart({ chart, data }: FunnelChartProps) {
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
         xaxis: {
-          title: `${agg.toUpperCase()} of ${yField}`,
+          title: `${agg?.toUpperCase?.() || "SUM"} of ${yField}`,
         },
         yaxis: {
           title: xField,

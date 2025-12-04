@@ -39,9 +39,36 @@ const FILTER_STORAGE_KEY = "novaprowl_chart_filters_v1"; // 🔹 ADDED
 // ------------------------------------------
 // Types
 // ------------------------------------------
+
+// 🔹 Match backend chart schema (query.ts)
+type AggregationType = "sum" | "avg" | "count" | "min" | "max";
+type ChartType =
+  | "bar"
+  | "line"
+  | "pie"
+  | "donut"
+  | "scatter"
+  | "area"
+  | "heatmap"
+  | "funnel"
+  | "sunburst";
+
+export type BackendChart = {
+  id?: string;
+  title: string;
+  type: ChartType;
+  xField: string;
+  yField?: string;
+  agg?: AggregationType;
+  description?: string;
+};
+
 type DashboardSectionProps = {
   data: Row[];
   columns: string[];
+
+  // 🔹 NEW: charts suggested by the AI (via prompt)
+  chartsFromPrompt?: BackendChart[];
 };
 
 type ChartFilter = {
@@ -63,6 +90,7 @@ function applyChartFilter(rows: Row[], filter: ChartFilter | undefined): Row[] {
 export default function DashboardSection({
   data,
   columns,
+  chartsFromPrompt, // 🔹 NEW
 }: DashboardSectionProps) {
   // Derive column types
   const numericCols = useMemo(() => getNumericColumns(data), [data]);
@@ -85,7 +113,7 @@ export default function DashboardSection({
         ? localStorage.getItem(STORAGE_KEY)
         : null;
       if (raw) return JSON.parse(raw);
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -99,7 +127,7 @@ export default function DashboardSection({
           ? localStorage.getItem(FILTER_STORAGE_KEY)
           : null;
       if (raw) return JSON.parse(raw);
-    } catch {}
+    } catch { }
     return {};
   });
 
@@ -117,7 +145,7 @@ export default function DashboardSection({
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(charts));
-    } catch {}
+    } catch { }
   }, [charts]);
 
   // Save chart filters persistently 🔹
@@ -127,7 +155,7 @@ export default function DashboardSection({
         FILTER_STORAGE_KEY,
         JSON.stringify(chartFilters)
       );
-    } catch {}
+    } catch { }
   }, [chartFilters]);
 
   // ------------------------------------------
@@ -230,6 +258,20 @@ export default function DashboardSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ------------------------------------------
+  // 🔹 Inject AI-generated charts from prompts
+  // ------------------------------------------
+  // Listen for charts created from prompts (sent by AnalysisPanel)
+  useEffect(() => {
+    function handleAddChart(e: any) {
+      const chart = e.detail;
+      setCharts((prev) => [...prev, chart]);
+    }
+
+    window.addEventListener("novaprowl-add-chart", handleAddChart);
+    return () => window.removeEventListener("novaprowl-add-chart", handleAddChart);
+  }, []);
+
   // ----------------------------------------------------
   // Render
   // ----------------------------------------------------
@@ -258,15 +300,15 @@ export default function DashboardSection({
           const uniqueValues =
             filterField && data.length
               ? Array.from(
-                  new Set(
-                    data
-                      .map((row) => row[filterField])
-                      .filter(
-                        (v) => v !== null && v !== undefined && v !== ""
-                      )
-                      .map((v) => String(v))
-                  )
+                new Set(
+                  data
+                    .map((row) => row[filterField])
+                    .filter(
+                      (v) => v !== null && v !== undefined && v !== ""
+                    )
+                    .map((v) => String(v))
                 )
+              )
               : [];
 
           const filteredData = applyChartFilter(data, activeFilter);
@@ -312,7 +354,7 @@ export default function DashboardSection({
                   <button
                     type="button"
                     onClick={() => handleDownloadChart(chart)}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-white/10"
+                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
                     title="Download chart"
                   >
                     <Download className="w-3 h-3" />
@@ -321,7 +363,7 @@ export default function DashboardSection({
                   <button
                     type="button"
                     onClick={() => setEnlargedChart(chart)}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-white/10"
+                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
                     title="Expand chart"
                   >
                     <Maximize2 className="w-3 h-3" />
@@ -330,7 +372,7 @@ export default function DashboardSection({
                   <button
                     type="button"
                     onClick={() => handleDuplicateChart(chart)}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-white/10"
+                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
                     title="Duplicate chart"
                   >
                     <span className="text-[10px] font-semibold">2×</span>
@@ -339,7 +381,7 @@ export default function DashboardSection({
                   <button
                     type="button"
                     onClick={handleRefreshChart}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-white/10"
+                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
                     title="Refresh chart"
                   >
                     {/* simple visual cue; behavior is via refreshToken state */}
@@ -349,7 +391,7 @@ export default function DashboardSection({
                   <button
                     type="button"
                     onClick={() => handleRemoveChart(chart.id)}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-white/10"
+                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
                     title="Remove chart"
                   >
                     <X className="w-3 h-3" />
@@ -374,9 +416,9 @@ export default function DashboardSection({
                         ...prev,
                         [chart.id]: field
                           ? {
-                              field,
-                              value: "__ALL__",
-                            }
+                            field,
+                            value: "__ALL__",
+                          }
                           : null,
                       }));
                     }}
@@ -429,9 +471,6 @@ export default function DashboardSection({
 
               {/* Chart content */}
               <div className="p-3 flex-1 bg-slate-50">
-                {/* refreshToken is not used directly by ChartFactory but
-                    changing filteredData ensures a re-render; refreshToken
-                    just forces this component to re-render when clicked */}
                 <ChartFactory
                   key={refreshToken} // 🔹 simple re-mount on refresh
                   chart={chart}
