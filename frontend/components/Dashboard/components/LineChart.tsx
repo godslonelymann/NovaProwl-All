@@ -23,9 +23,13 @@ const PALETTE = [
 type LineChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
-export default function LineChart({ chart, data }: LineChartProps) {
+export default function LineChart({ chart, data, ranges }: LineChartProps) {
   const agg = chart.agg || "sum";
 
   const { labels, values } = useMemo(
@@ -64,8 +68,8 @@ export default function LineChart({ chart, data }: LineChartProps) {
         margin: { l: 40, r: 20, t: 10, b: 40 },
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
-        xaxis: { title: chart.xField },
-        yaxis: { title: yTitle },
+        xaxis: { title: chart.xField, range: ranges?.xRange ?? undefined },
+        yaxis: { title: yTitle, range: ranges?.yRange ?? undefined },
       }}
       useResizeHandler
       style={{ width: "100%", height: 260 }}

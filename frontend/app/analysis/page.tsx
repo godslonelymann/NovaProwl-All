@@ -1,3 +1,4 @@
+// app/analysis/page.tsx (or pages/analysis.tsx depending on your structure)
 "use client";
 
 import { useEffect, useState } from "react";
@@ -6,42 +7,46 @@ import AnalysisPanel from "@/components/AnalysisPanel";
 import Sidebar from "@/components/Sidebar";
 import { useSessionStore } from "@/components/SessionStore";
 
-const BACKEND = (process.env.NEXT_PUBLIC_BACKEND || "http://localhost:8000").replace(
-  /\/+$/,
-  ""
-);
-
 type Row = Record<string, any>;
 
-// 🔹 NEW: same shape we used in MainInterface & AnalysisPanel
 type UploadedDataset = {
   id: string;
   fileName: string;
   rows: Row[];
+  columns?: string[];
+  extension?: string;
+  kind?: string;
+  textContent?: string;
+};
+
+const collectColumns = (rows: Row[]): string[] => {
+  if (!rows.length) return [];
+  const keys = new Set<string>();
+  rows.forEach((r) => Object.keys(r || {}).forEach((k) => keys.add(k)));
+  return Array.from(keys);
 };
 
 export default function AnalysisPage() {
   const [data, setData] = useState<Row[] | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [prompt, setPrompt] = useState<string>("");
+  const [allDatasets, setAllDatasets] = useState<UploadedDataset[] | null>(
+    null
+  );
+  const [activeDatasetId, setActiveDatasetId] = useState<string | undefined>(
+    undefined
+  );
 
-  // 🔹 NEW: hold ALL datasets for this session
-  const [datasets, setDatasets] = useState<UploadedDataset[]>([]);
-
-  // sidebar state for the *fallback* screen
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [accountOpen, setAccountOpen] = useState(false);
 
   const router = useRouter();
-
-  // 🔹 session store (persistent sessions + activeSessionId)
   const { sessions, activeSessionId, setActiveSessionId } = useSessionStore();
 
-  // 🔹 derive recentChats from stored sessions
   const recentChats = sessions.map((s) => s.title);
 
   useEffect(() => {
-    // 1) If we have an active session, prefer loading from localStorage
+    // 1) Preferred: load from persistent session data
     if (activeSessionId) {
       const session = sessions.find((s) => s.id === activeSessionId);
       if (session) {
@@ -49,42 +54,42 @@ export default function AnalysisPage() {
           const raw = localStorage.getItem(
             `novaprowl_session_data_v1_${activeSessionId}`
           );
-
           if (raw) {
-            const parsed = JSON.parse(raw);
+            const parsed = JSON.parse(raw) as {
+              datasets?: UploadedDataset[];
+              activeDatasetId?: string;
+              initialPrompt?: string;
+              fileName?: string;
+              data?: Row[];
+            };
 
-            // 🔹 NEW SCHEMA: { datasets: UploadedDataset[], initialPrompt? }
-            if (Array.isArray(parsed.datasets) && parsed.datasets.length > 0) {
-              const dsArray = parsed.datasets as UploadedDataset[];
-              setDatasets(dsArray);
-
-              const primary = dsArray[0];
-              setData(primary.rows || []);
-              setFileName(primary.fileName || session.fileName || "Data Summary Request");
+            if (parsed.datasets && parsed.datasets.length > 0) {
+              setAllDatasets(parsed.datasets);
+              const active =
+                parsed.datasets.find((d) => d.id === parsed.activeDatasetId) ||
+                parsed.datasets[0];
+              setActiveDatasetId(active?.id);
+              setData(active?.rows || null);
+              setFileName(active?.fileName || "");
               setPrompt(parsed.initialPrompt || session.firstPrompt || "");
-              return; // ✅ we’re done; don’t fall back
+              return;
             }
 
-            // 🔹 OLD SCHEMA: { fileName?: string; data: Row[]; initialPrompt? }
-            if (Array.isArray(parsed.data)) {
-              const rows = parsed.data as Row[];
-              const legacyFileName =
-                parsed.fileName || session.fileName || "Data Summary Request";
-
-              setData(rows);
-              setFileName(legacyFileName);
+            // legacy single dataset shape
+            if (parsed.data && parsed.fileName) {
+              const legacyColumns = collectColumns(parsed.data);
+              const legacyDataset: UploadedDataset = {
+                id: "legacy-dataset",
+                fileName: parsed.fileName,
+                rows: parsed.data,
+                columns: legacyColumns,
+              };
+              setAllDatasets([legacyDataset]);
+              setActiveDatasetId(legacyDataset.id);
+              setData(parsed.data);
+              setFileName(parsed.fileName);
               setPrompt(parsed.initialPrompt || session.firstPrompt || "");
-
-              // also wrap legacy data into a single-dataset array
-              setDatasets([
-                {
-                  id: "legacy-dataset",
-                  fileName: legacyFileName,
-                  rows,
-                },
-              ]);
-
-              return; // ✅ handled via legacy path
+              return;
             }
           }
         } catch (e) {
@@ -93,7 +98,7 @@ export default function AnalysisPage() {
       }
     }
 
-    // 2) Fallback: old behavior using sessionStorage
+    // 2) Fallback: old sessionStorage behaviour
     try {
       const raw = sessionStorage.getItem("analysis_dataset");
       const file = sessionStorage.getItem("analysis_file");
@@ -101,57 +106,36 @@ export default function AnalysisPage() {
 
       if (raw && file) {
         const parsed: Row[] = JSON.parse(raw);
+        const legacyColumns = collectColumns(parsed);
+        const legacyDataset: UploadedDataset = {
+          id: "legacy-dataset",
+          fileName: file,
+          rows: parsed,
+          columns: legacyColumns,
+        };
+        setAllDatasets([legacyDataset]);
+        setActiveDatasetId(legacyDataset.id);
         setData(parsed);
         setFileName(file);
         setPrompt(q);
-
-        // 🔹 also wrap as single dataset for pill component
-        setDatasets([
-          {
-            id: "fallback-session-storage",
-            fileName: file,
-            rows: parsed,
-          },
-        ]);
-
-        // 🔹 legacy: sync dataset to backend so /api/query works
-        const cols = parsed.length ? Object.keys(parsed[0]) : [];
-
-        fetch(`${BACKEND}/api/sync-dataset`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            filename: file,
-            rows: parsed,
-            columns: cols,
-          }),
-        }).catch((err) => {
-          console.error("Failed to sync dataset to backend", err);
-        });
       }
     } catch (e) {
       console.error("Failed to load analysis data from sessionStorage", e);
     }
   }, [activeSessionId, sessions]);
 
-  // ✅ If we DO have data + filename, use the full AnalysisPanel (which already has Sidebar inside)
-  if (data && fileName) {
+  if (allDatasets && allDatasets.length && activeDatasetId) {
     return (
       <AnalysisPanel
-        fileName={fileName}
-        data={data}
+        datasets={allDatasets}
+        activeDatasetId={activeDatasetId}
         initialPrompt={prompt}
-        datasets={datasets}  // 🔹 PASS ALL DATASETS TO ANALYSIS PANEL
       />
     );
   }
 
-  // ✅ Fallback: show SAME sidebar layout + message in the main area
   return (
     <div className="max-h-screen bg-[#f4f2ee] text-slate-800 flex">
-      {/* Sidebar */}
       <Sidebar
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
@@ -161,7 +145,6 @@ export default function AnalysisPage() {
         activeSpace="Chat"
         onSpaceChange={(label) => {
           if (label === "Chat") {
-            // go back to main interface
             setActiveSessionId(null);
             router.push("/");
           }
@@ -169,13 +152,10 @@ export default function AnalysisPage() {
         onSelectChat={(chatTitle) => {
           const session = sessions.find((s) => s.title === chatTitle);
           if (!session) return;
-
-          // set this as active; effect above will load it
           setActiveSessionId(session.id);
         }}
       />
 
-      {/* Main content with message */}
       <main className="flex-1 flex items-center justify-center px-4">
         <div className="max-w-md text-center">
           <h1 className="text-xl font-semibold text-slate-900 mb-2">
@@ -183,7 +163,6 @@ export default function AnalysisPage() {
           </h1>
           <p className="text-sm text-slate-600">
             Please go back to the home screen, upload a dataset, and ask a question.
-            We’ll then bring you back here with a full analysis.
           </p>
         </div>
       </main>

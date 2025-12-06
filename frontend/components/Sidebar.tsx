@@ -1,4 +1,6 @@
 "use client";
+import Link from 'next/link'
+
 
 import React, { useEffect, useState } from "react";
 import {
@@ -42,8 +44,8 @@ const spaces = [
 ];
 
 const tools = [
-  { icon: FunctionSquare, label: "OCR Tool" },
-  { icon: FileText, label: "Data Cleaner Tool" },
+  { icon: FunctionSquare, label: "OCR Tool" , link: "/OCRTool"},
+  { icon: FileText, label: "Data Cleaner Tool", link: "dataCleaning" },
 ];
 
 const STORAGE_KEY = "novaprowl_sidebar_chats_v2";
@@ -157,11 +159,13 @@ export default function Sidebar({
 
       {/* Logo / top spacing */}
       <div className="flex items-center gap-2 px-4 pt-4 pb-6">
-        <div className="h-7 w-7 rounded-lg bg-slate-900 flex items-center justify-center" />
+       
         {sidebarOpen && (
-          <span className="text-sm font-semibold text-slate-700">
+          <Link 
+          href={"/mainInterface"}
+          className="text-sm font-semibold text-slate-700">
             NovaProwl
-          </span>
+          </Link>
         )}
       </div>
 
@@ -208,7 +212,8 @@ export default function Sidebar({
             const isActive = activeTool === item.label;
 
             return (
-              <button
+              <Link
+                href={item.link}
                 key={item.label}
                 className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm cursor-pointer transition-colors
                   ${isActive
@@ -219,7 +224,7 @@ export default function Sidebar({
               >
                 <Icon className="w-4 h-4" />
                 {sidebarOpen && <span>{item.label}</span>}
-              </button>
+              </Link>
             );
           })}
         </nav>

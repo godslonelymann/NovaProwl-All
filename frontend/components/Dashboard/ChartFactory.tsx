@@ -35,18 +35,22 @@ import { Row } from "./chartTypes";
 export type ChartFactoryProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
 // ------------------------------------------------------------------
 // Factory Renderer
 // ------------------------------------------------------------------
-export default function ChartFactory({ chart, data }: ChartFactoryProps) {
+export default function ChartFactory({ chart, data, ranges }: ChartFactoryProps) {
   switch (chart.type as ChartType) {
     case "bar":
-      return <BarChart chart={chart} data={data} />;
+      return <BarChart chart={chart} data={data} ranges={ranges} />;
 
     case "line":
-      return <LineChart chart={chart} data={data} />;
+      return <LineChart chart={chart} data={data} ranges={ranges} />;
 
     case "pie":
       return <PieChart chart={chart} data={data} />;
@@ -55,34 +59,34 @@ export default function ChartFactory({ chart, data }: ChartFactoryProps) {
       return <DonutChart chart={chart} data={data} />;
 
     case "area":
-      return <AreaChart chart={chart} data={data} />;
+      return <AreaChart chart={chart} data={data} ranges={ranges} />;
 
     case "histogram":
-      return <HistogramChart chart={chart} data={data} />;
+      return <HistogramChart chart={chart} data={data} ranges={ranges} />;
 
     case "radar":
-      return <RadarChart chart={chart} data={data} />;
+      return <RadarChart chart={chart} data={data} ranges={ranges} />;
 
     case "heatmap":
-      return <HeatmapChart chart={chart} data={data} />;
+      return <HeatmapChart chart={chart} data={data} ranges={ranges} />;
 
     case "bubble":
-      return <BubbleChart chart={chart} data={data} />;
+      return <BubbleChart chart={chart} data={data} ranges={ranges} />;
 
     case "scatter":
-      return <ScatterChart chart={chart} data={data} />;
+      return <ScatterChart chart={chart} data={data} ranges={ranges} />;
 
     case "funnel":
-      return <FunnelChart chart={chart} data={data} />;
+      return <FunnelChart chart={chart} data={data} ranges={ranges} />;
 
     case "treemap":
-      return <TreemapChart chart={chart} data={data} />;
+      return <TreemapChart chart={chart} data={data} ranges={ranges} />;
 
     case "sunburst":
-      return <SunburstChart chart={chart} data={data} />;
+      return <SunburstChart chart={chart} data={data} ranges={ranges} />;
     
     case "box":
-      return <BoxPlotChart chart={chart} data={data} />
+      return <BoxPlotChart chart={chart} data={data} ranges={ranges} />
 
     default:
       return (

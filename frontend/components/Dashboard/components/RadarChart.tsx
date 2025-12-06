@@ -22,6 +22,10 @@ const PALETTE = [
 type RadarChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
 export default function RadarChart({ chart, data }: RadarChartProps) {

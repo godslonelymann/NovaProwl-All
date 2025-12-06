@@ -1,0 +1,51 @@
+customer_id,name,email,age,signup_date,last_login,country,city,total_spend,is_active
+1, John Doe ,JOHN.DOE@example.com,29,2024-01-05,2024-03-10,usa,New York,1200.50,TRUE
+2,jane doe,jane.doe@example.com, ,05/02/2024,2024-03-08,USA,new york,850.00,true
+3,Mary  Smith,mary.smith@EXAMPLE.com,41,2023-11-20,11-03-2024,United States,Los Angeles, ,False
+4,Bob Johnson,bob.johnson@example,35,2024/01/15,2024/03/15,US,los angeles,430.75,TRUE
+5,alice   wong,alice.wong@example.com,27,2024-02-01,2024-02-28,usa,San Francisco,9999.99,yes
+6,David Lee,david.lee@example.com,NaN,2024-01-30,,Canada,Toronto,530.20,false
+7,EMMA THOMAS,emma.thomas@example.com,22,2024-02-15,2024-03-01,canada,toronto,0,TRUE
+8,Chris O'Neil,chris.oneil@example.com,30,2024-01-08,2024-03-20,UK,London,310.5,TRUE
+9, chris o'neil ,chris.oneil@example.com,30,2024-01-08,2024-03-20,United Kingdom,London ,310.50,true
+10,Sarah Connor,sarah.connor@example.com,38,2023-12-31,31-03-2024,uk,london,120.00,false
+11,Mike, mike@example.com,17,2024-01-01,2024-01-15,USA,Chicago,75.90,TRUE
+12,MICHAEL BROWN,michael.brown@example.com,200,2024-02-10,2024-02-20,usa,Chicago,-45.00,true
+13,Linda   Green,linda.green@example.com,,2024-02-05,2024-04-01,Germany,Berlin,670.25,TRUE
+14,Tom King,tom.king@example.com,33,2024/02/28,,germany,berlin,670.25,TRUE
+15,Tom King,tom.king@example.com,33,2024/02/28,,Germany,Berlin,670.25,TRUE
+16,Anna Müller,anna.mueller@example.de,29,2023-10-10,2024-01-01,DE,berlin,1200,False
+17,张伟,zhang.wei@example.cn,31,2024-01-20,2024-03-02,China,Shanghai,340.10,TRUE
+18,Li Wei,li.wei@example.cn,not_available,2024-01-22,2024-02-27,china,shanghai,340.10,true
+19,José García,jose.garcia@example.es,45,2023-09-15,2024-01-30,Spain,Madrid,890.00,TRUE
+20,Jose Garcia,jose.garcia@example.es,45,2023-09-15,2024-01-30,ES,MADRID,890,TRUE
+21,Emily Davis,emily.davis@example.com,28,2024-03-01,2024-03-10,USA,Seattle,450.75,TRUE
+22, Emily Davis ,emily.davis@example.com, ,2024-03-01,2024-03-10,usa,Seattle,450.75,true
+23,Robert Wilson,robert.wilson@example.com,52,2023-08-01,2024-02-15,USA,Miami,,FALSE
+24,Robert Wilson,robert.wilson@example.com,52,2023-08-01,15/02/2024,USA,Miami,0,false
+25,Karen Taylor,karen.taylor@example.com,39,2024-02-18,2024-02-25,United States,miami,101.10,TRUE
+26,George Harris,george.harris@example.com,26,2024-03-05,,UK,Manchester,250.00,Yes
+27,GEORGE HARRIS,george.harris@example.com,26,2024-03-05,,United Kingdom,Manchester,250,TRUE
+28,Isabella Rossi,isabella.rossi@example.it,31,2023-11-11,2024-01-19,Italy,Rome,5000.99,TRUE
+29,Isabella  Rossi,isabella.rossi@example.it,31,2023-11-11,19-01-2024,IT,Roma,5000.99,true
+30,Luca Bianchi,luca.bianchi@example.it,,-,2024-02-10,Italy,Rome,130.50,FALSE
+31,Oliver Smith,oliver.smith@example.com,0,2024-02-01,2024-03-01,USA,Boston,75.00,true
+32,Noah Johnson,noah.johnson@example.com,-5,2024-02-02,2024-03-02,USA,Boston,80.00,true
+33, Ava Williams,ava.williams@example.com,27,2024-02-03,2024-03-03,usa,Boston,Hello,false
+34,Sophia Jones,sophia.jones@example.com,30,2024-02-04,2024-03-04,USA, "San Diego",320.75,true
+35,James Brown,james.brown@example.com,41,2024-02-05,2024-03-05,USA,San Diego,320.75,true
+36,James Brown,james.brown@example.com,41,2024-02-05,2024-03-05,USA,San Diego,320.75,true
+37,Mia Miller,mia.miller@example.com,25,2024-02-06,2024-03-06,Canada,Vancouver,210.40,TRUE
+38,Mia Miller,mia.miller@example.com,25,2024-02-06,2024-03-06,CA,Vancouver,210.40,TRUE
+39,Charlotte Davis,charlotte.davis@example.com,29,2024-02-07,2024-03-07,Canada,Van City,210.40,true
+40,Amelia Wilson,amelia.wilson@example.com,31,2024-02-08,,Canada,Vancouver, ,false
+41,Ethan Moore,ethan.moore@example.com,35,2024-02-09,2024-03-09,Australia,Sydney,9999999.99,true
+42,Logan Taylor,logn.taylor@example.com,33,2024-02-10,2024-03-10,Australia,Sydney,130.25,true
+43,Logan Taylor,logan.taylor@example.com,33,2024-02-10,2024-03-10,AU,SYDNEY,130.25,true
+44,"Test, User",test.user@example.com,22,2024-02-11,2024-03-11,USA,New York,55.55,true
+45,Null Name,,NULL,2024-02-12,2024-03-12,Unknown,,0,false
+46,,no-name@example.com,30,2024-02-13,2024-03-13,USA,Unknown,90.00,true
+47,Old Record,old.record@example.com,99,1990-01-01,1991-01-01,USA,Oldtown,10.00,false
+48,Future Record,future.record@example.com,25,2099-01-01,2100-01-01,Mars,Colony,1000.00,true
+49,Weird Types,weird.types@example.com,"twenty",2024-02-14,2024-03-14,USA,Nowhere,123.45,true
+50,Extra Spaces , extra.spaces@example.com ,28 , 2024-02-15 , 2024-03-15 , USA , Los Angeles , 321.00 , true

@@ -1,46 +1,19 @@
 // ------------------------------------------------------
 // DashboardSection.tsx
-// The main section that displays all dynamic charts
+// Chart grid with per-chart data zoom controls
+// + delete & expand (scale up) overlay
 // ------------------------------------------------------
 
 "use client";
 
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-  useRef, // 🔹 ADDED
-} from "react";
-import {
-  Plus,
-  X,
-  Filter,      // 🔹 ADDED
-  Edit3,       // 🔹 ADDED
-  Download,    // 🔹 ADDED
-  Maximize2,   // 🔹 ADDED
-} from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Plus, ZoomIn, ZoomOut, RefreshCw, X, Maximize2 } from "lucide-react";
 
 import ChartFactory from "./ChartFactory";
 import AddChartModal from "./modals/AddChartModal";
-import EditChartModal from "./modals/EditChartModal"; // 🔹 ADDED
-
 import { ChartConfig, Row } from "./chartTypes";
-import {
-  getNumericColumns,
-  getCategoricalColumns,
-} from "./chartUtils";
+import { getNumericColumns, getCategoricalColumns } from "./chartUtils";
 
-// ------------------------------------------
-// LocalStorage Keys
-// ------------------------------------------
-const STORAGE_KEY = "novaprowl_charts_v1";
-const FILTER_STORAGE_KEY = "novaprowl_chart_filters_v1"; // 🔹 ADDED
-
-// ------------------------------------------
-// Types
-// ------------------------------------------
-
-// 🔹 Match backend chart schema (query.ts)
 type AggregationType = "sum" | "avg" | "count" | "min" | "max";
 type ChartType =
   | "bar"
@@ -50,6 +23,10 @@ type ChartType =
   | "scatter"
   | "area"
   | "heatmap"
+  | "histogram"
+  | "bubble"
+  | "box"
+  | "radar"
   | "funnel"
   | "sunburst";
 
@@ -66,101 +43,411 @@ export type BackendChart = {
 type DashboardSectionProps = {
   data: Row[];
   columns: string[];
-
-  // 🔹 NEW: charts suggested by the AI (via prompt)
   chartsFromPrompt?: BackendChart[];
 };
 
-type ChartFilter = {
-  field: string;
-  value: string;
-} | null;
+type RangePair = [number, number];
 
-// small utility to apply chart-level filter
-function applyChartFilter(rows: Row[], filter: ChartFilter | undefined): Row[] {
-  if (!filter || !filter.field || !filter.value || filter.value === "__ALL__") {
-    return rows;
+const isAxisChart = (type: ChartConfig["type"]) =>
+  ["bar", "line", "area", "scatter", "bubble", "histogram", "heatmap", "box"].includes(
+    type
+  );
+
+const getNumericDomain = (rows: Row[], field?: string): RangePair | null => {
+  if (!field) return null;
+  const nums: number[] = [];
+  for (const row of rows) {
+    const raw = row[field];
+    const v =
+      typeof raw === "number"
+        ? raw
+        : raw !== undefined && raw !== null && raw !== ""
+        ? Number(raw)
+        : NaN;
+    if (!Number.isNaN(v)) nums.push(v);
   }
-  return rows.filter((r) => String(r[filter.field]) === filter.value);
+  if (!nums.length) return null;
+  return [Math.min(...nums), Math.max(...nums)];
+};
+
+const applyZoom = (
+  current: RangePair | null,
+  full: RangePair | null,
+  factor: number
+): RangePair | null => {
+  if (!full) return current;
+  const [fullMin, fullMax] = full;
+  const base = current ?? full;
+  const center = (base[0] + base[1]) / 2;
+  const half = ((base[1] - base[0]) * factor) / 2;
+  let newMin = center - half;
+  let newMax = center + half;
+  newMin = Math.max(fullMin, newMin);
+  newMax = Math.min(fullMax, newMax);
+  if (newMax - newMin <= 0) return base;
+  return [newMin, newMax];
+};
+
+type ChartCardProps = {
+  chart: ChartConfig;
+  data: Row[];
+  fullX?: RangePair | null;
+  fullY?: RangePair | null;
+  onDelete?: () => void;
+  onExpand?: () => void;
+};
+
+function ChartCard({
+  chart,
+  data,
+  fullX,
+  fullY,
+  onDelete,
+  onExpand,
+}: ChartCardProps) {
+  const [xRange, setXRange] = useState<RangePair | null>(null);
+  const [yRange, setYRange] = useState<RangePair | null>(null);
+
+  const axisBased = isAxisChart(chart.type);
+
+  const handleZoom = (dir: "in" | "out") => {
+    if (!axisBased) return;
+    const factor = dir === "in" ? 0.7 : 1.3;
+    if (fullX) {
+      setXRange((prev) => applyZoom(prev, fullX, factor));
+    }
+    if (fullY) {
+      setYRange((prev) => applyZoom(prev, fullY, factor));
+    }
+  };
+
+  const handleReset = () => {
+    setXRange(null);
+    setYRange(null);
+  };
+
+  const onWheel = (e: React.WheelEvent) => {
+    if (!axisBased) return;
+    e.preventDefault();
+    if (e.deltaY < 0) handleZoom("in");
+    else handleZoom("out");
+  };
+
+  const showToolbar = axisBased && (fullX || fullY);
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col">
+      <div className="flex items-center justify-between px-4 py-2 bg-slate-800 text-white">
+        <span className="text-xs font-semibold truncate">{chart.name}</span>
+        <div className="flex items-center gap-1">
+          {showToolbar && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleZoom("in")}
+                className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-white/10"
+                title="Zoom in"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleZoom("out")}
+                className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-white/10"
+                title="Zoom out"
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleReset}
+                className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-white/10"
+                title="Reset zoom"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+
+          {/* Scale up / expand */}
+          <button
+            type="button"
+            onClick={onExpand}
+            className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-white/10"
+            title="Expand chart"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Delete chart */}
+          <button
+            type="button"
+            onClick={onDelete}
+            className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-white/10"
+            title="Delete chart"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="p-3 flex-1 bg-slate-50" onWheel={onWheel}>
+        <ChartFactory
+          chart={chart}
+          data={data}
+          ranges={
+            axisBased
+              ? {
+                  xRange,
+                  yRange,
+                }
+              : undefined
+          }
+        />
+      </div>
+    </div>
+  );
 }
 
-// ------------------------------------------------------
-// Component
-// ------------------------------------------------------
+// ---------- Expanded chart overlay (scale up) ----------
+type ExpandedChartModalProps = {
+  chart: ChartConfig;
+  data: Row[];
+  onClose: () => void;
+};
+
+function ExpandedChartModal({ chart, data, onClose }: ExpandedChartModalProps) {
+  const axisBased = isAxisChart(chart.type);
+
+  const fullX = axisBased ? getNumericDomain(data, chart.xField) : null;
+  const fullY = axisBased
+    ? getNumericDomain(data, chart.yField || chart.xField)
+    : null;
+
+  const [xRange, setXRange] = useState<RangePair | null>(null);
+  const [yRange, setYRange] = useState<RangePair | null>(null);
+
+  const handleZoom = (dir: "in" | "out") => {
+    if (!axisBased) return;
+    const factor = dir === "in" ? 0.7 : 1.3;
+    if (fullX) {
+      setXRange((prev) => applyZoom(prev, fullX, factor));
+    }
+    if (fullY) {
+      setYRange((prev) => applyZoom(prev, fullY, factor));
+    }
+  };
+
+  const handleReset = () => {
+    setXRange(null);
+    setYRange(null);
+  };
+
+  const onWheel = (e: React.WheelEvent) => {
+    if (!axisBased) return;
+    e.preventDefault();
+    if (e.deltaY < 0) handleZoom("in");
+    else handleZoom("out");
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="relative w-full max-w-5xl max-h-[90vh] mx-4 rounded-2xl bg-white shadow-2xl flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold text-gray-900">
+              {chart.name}
+            </span>
+            <span className="text-[11px] text-gray-500">
+              Expanded view · Scroll to zoom, or use controls
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {axisBased && (fullX || fullY) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleZoom("in")}
+                  className="h-8 w-8 flex items-center justify-center rounded-full border border-gray-200 hover:bg-gray-50"
+                  title="Zoom in"
+                >
+                  <ZoomIn className="w-4 h-4 text-gray-700" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleZoom("out")}
+                  className="h-8 w-8 flex items-center justify-center rounded-full border border-gray-200 hover:bg-gray-50"
+                  title="Zoom out"
+                >
+                  <ZoomOut className="w-4 h-4 text-gray-700" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="h-8 w-8 flex items-center justify-center rounded-full border border-gray-200 hover:bg-gray-50"
+                  title="Reset zoom"
+                >
+                  <RefreshCw className="w-4 h-4 text-gray-700" />
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-8 w-8 flex items-center justify-center rounded-full bg-gray-900 text-white hover:bg-gray-800"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Chart area */}
+        <div className="flex-1 p-4 bg-slate-50 overflow-auto" onWheel={onWheel}>
+          <div className="w-full h-[60vh] min-h-[320px] rounded-xl border border-gray-200 bg-white p-3">
+            <ChartFactory
+              chart={chart}
+              data={data}
+              ranges={
+                axisBased
+                  ? {
+                      xRange,
+                      yRange,
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Main DashboardSection ----------
 export default function DashboardSection({
   data,
   columns,
-  chartsFromPrompt, // 🔹 NEW
+  chartsFromPrompt,
 }: DashboardSectionProps) {
   // Derive column types
   const numericCols = useMemo(() => getNumericColumns(data), [data]);
-  const categoricalCols = useMemo(
-    () => getCategoricalColumns(data),
-    [data]
-  );
+  const categoricalCols = useMemo(() => getCategoricalColumns(data), [data]);
 
   const firstCat = categoricalCols[0];
   const secondCat = categoricalCols[1] || categoricalCols[0];
   const firstNum = numericCols[0];
   const secondNum = numericCols[1] || numericCols[0];
 
-  // ------------------------------------------
-  // Load charts from localStorage on mount
-  // ------------------------------------------
+  // User-added charts (persisted)
+  const STORAGE_KEY = "novaprowl_charts_v1";
   const [charts, setCharts] = useState<ChartConfig[]>(() => {
-    try {
-      const raw = typeof window !== "undefined"
-        ? localStorage.getItem(STORAGE_KEY)
-        : null;
-      if (raw) return JSON.parse(raw);
-    } catch { }
-    return [];
-  });
-
-  // 🔹 Per-chart filters state
-  const [chartFilters, setChartFilters] = useState<
-    Record<string, ChartFilter>
-  >(() => {
     try {
       const raw =
         typeof window !== "undefined"
-          ? localStorage.getItem(FILTER_STORAGE_KEY)
+          ? localStorage.getItem(STORAGE_KEY)
           : null;
-      if (raw) return JSON.parse(raw);
-    } catch { }
-    return {};
+      if (raw) {
+        const parsed: ChartConfig[] = JSON.parse(raw);
+        return parsed.filter((c) => !c.id.startsWith("default-"));
+      }
+    } catch {
+      /* ignore */
+    }
+    return [];
   });
 
-  // 🔹 Which chart's filter menu is open
-  const [filterMenuFor, setFilterMenuFor] = useState<string | null>(null);
-
-  // 🔹 Edit chart state
-  const [editingChart, setEditingChart] = useState<ChartConfig | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
-
-  // 🔹 Enlarged chart state
-  const [enlargedChart, setEnlargedChart] = useState<ChartConfig | null>(null);
-
-  // Save charts persistently
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(charts));
-    } catch { }
+    } catch {
+      /* ignore */
+    }
   }, [charts]);
 
-  // Save chart filters persistently 🔹
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        FILTER_STORAGE_KEY,
-        JSON.stringify(chartFilters)
-      );
-    } catch { }
-  }, [chartFilters]);
+  const baseCharts: ChartConfig[] = useMemo(() => {
+    if (!firstCat || !firstNum) return [];
+    const defaults: ChartConfig[] = [
+      {
+        id: "default-1",
+        name: `Sum of ${firstNum} by ${firstCat}`,
+        type: "bar",
+        xField: firstCat,
+        yField: firstNum,
+        agg: "sum",
+      },
+      {
+        id: "default-2",
+        name: `Trend of ${firstNum}`,
+        type: "line",
+        xField: firstCat,
+        yField: firstNum,
+        agg: "sum",
+      },
+      {
+        id: "default-3",
+        name: `Distribution of ${firstNum}`,
+        type: "pie",
+        xField: firstCat,
+        yField: firstNum,
+        agg: "sum",
+      },
+      {
+        id: "default-4",
+        name: `Avg ${secondNum} by ${secondCat}`,
+        type: "donut",
+        xField: secondCat,
+        yField: secondNum,
+        agg: "avg",
+      },
+    ];
+    return defaults;
+  }, [firstCat, firstNum, secondCat, secondNum]);
 
-  // ------------------------------------------
+  const aiCharts: ChartConfig[] = useMemo(
+    () =>
+      (chartsFromPrompt || []).map((c) => ({
+        id:
+          c.id ||
+          `ai-chart-${c.title}-${Math.random().toString(36).slice(2, 8)}`,
+        name: c.title,
+        type: c.type as ChartConfig["type"],
+        xField: c.xField,
+        yField: c.yField || c.xField,
+        agg: (c.agg as ChartConfig["agg"]) || "sum",
+        description: c.description,
+      })),
+    [chartsFromPrompt]
+  );
+
+  const allCharts: ChartConfig[] = useMemo(
+    () => [...baseCharts, ...aiCharts, ...charts],
+    [baseCharts, aiCharts, charts]
+  );
+
+  // Hidden chart IDs (for delete)
+  const [hiddenChartIds, setHiddenChartIds] = useState<string[]>([]);
+  const visibleCharts = useMemo(
+    () => allCharts.filter((c) => !hiddenChartIds.includes(c.id)),
+    [allCharts, hiddenChartIds]
+  );
+
+  const handleDeleteChart = (id: string) => {
+    // For persisted user charts, also remove from `charts` state
+    setCharts((prev) => prev.filter((c) => c.id !== id));
+    // For defaults / AI charts, hide by ID
+    setHiddenChartIds((prev) =>
+      prev.includes(id) ? prev : [...prev, id]
+    );
+  };
+
+  // Expanded chart overlay state
+  const [expandedChart, setExpandedChart] = useState<ChartConfig | null>(null);
+
   // Add chart modal
-  // ------------------------------------------
   const [addOpen, setAddOpen] = useState(false);
 
   const handleCreateChart = (cfg: Omit<ChartConfig, "id">) => {
@@ -170,111 +457,6 @@ export default function DashboardSection({
     ]);
   };
 
-  const handleRemoveChart = (id: string) => {
-    setCharts((prev) => prev.filter((c) => c.id !== id));
-  };
-
-  // 🔹 Duplicate chart
-  const handleDuplicateChart = (chart: ChartConfig) => {
-    const copy: ChartConfig = {
-      ...chart,
-      id: `chart-copy-${Date.now()}-${Math.random()}`,
-      name: `${chart.name} (copy)`,
-    };
-    setCharts((prev) => [...prev, copy]);
-  };
-
-  // 🔹 Refresh chart (simple small animation via a version key if needed)
-  const [refreshToken, setRefreshToken] = useState<number>(0);
-  const handleRefreshChart = () => {
-    setRefreshToken((t) => t + 1);
-  };
-
-  // 🔹 Download chart (JSON with chart config + data)
-  const handleDownloadChart = (chart: ChartConfig) => {
-    try {
-      const payload = {
-        chart,
-        // you could choose filtered data here, but raw dataset is often useful
-        data,
-      };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${(chart.name || "chart").replace(/\s+/g, "_")}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Failed to download chart:", err);
-    }
-  };
-
-  // ------------------------------------------
-  // Auto-inject 4 default charts ONLY if storage empty
-  // ------------------------------------------
-  useEffect(() => {
-    if (charts.length === 0 && firstCat && firstNum) {
-      const defaults: ChartConfig[] = [
-        {
-          id: "default-1",
-          name: `Sum of ${firstNum} by ${firstCat}`,
-          type: "bar",
-          xField: firstCat,
-          yField: firstNum,
-          agg: "sum",
-        },
-        {
-          id: "default-2",
-          name: `Trend of ${firstNum}`,
-          type: "line",
-          xField: firstCat,
-          yField: firstNum,
-          agg: "sum",
-        },
-        {
-          id: "default-3",
-          name: `Distribution of ${firstNum}`,
-          type: "pie",
-          xField: firstCat,
-          yField: firstNum,
-          agg: "sum",
-        },
-        {
-          id: "default-4",
-          name: `Avg ${secondNum} by ${secondCat}`,
-          type: "donut",
-          xField: secondCat,
-          yField: secondNum,
-          agg: "avg",
-        },
-      ];
-      setCharts(defaults);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ------------------------------------------
-  // 🔹 Inject AI-generated charts from prompts
-  // ------------------------------------------
-  // Listen for charts created from prompts (sent by AnalysisPanel)
-  useEffect(() => {
-    function handleAddChart(e: any) {
-      const chart = e.detail;
-      setCharts((prev) => [...prev, chart]);
-    }
-
-    window.addEventListener("novaprowl-add-chart", handleAddChart);
-    return () => window.removeEventListener("novaprowl-add-chart", handleAddChart);
-  }, []);
-
-  // ----------------------------------------------------
-  // Render
-  // ----------------------------------------------------
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
@@ -290,199 +472,29 @@ export default function DashboardSection({
         </button>
       </div>
 
-      {/* Grid of cards */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {charts.map((chart) => {
-          const activeFilter = chartFilters[chart.id] || null;
-
-          // build possible values for filter
-          const filterField = activeFilter?.field || chart.xField;
-          const uniqueValues =
-            filterField && data.length
-              ? Array.from(
-                new Set(
-                  data
-                    .map((row) => row[filterField])
-                    .filter(
-                      (v) => v !== null && v !== undefined && v !== ""
-                    )
-                    .map((v) => String(v))
-                )
-              )
-              : [];
-
-          const filteredData = applyChartFilter(data, activeFilter);
+        {visibleCharts.map((chart) => {
+          const fullX = isAxisChart(chart.type)
+            ? getNumericDomain(data, chart.xField)
+            : null;
+          const fullY = isAxisChart(chart.type)
+            ? getNumericDomain(data, chart.yField || chart.xField)
+            : null;
 
           return (
-            <div
+            <ChartCard
               key={chart.id}
-              className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col"
-            >
-              {/* Chart header */}
-              <div className="flex items-center justify-between px-4 py-2 bg-slate-800 text-white">
-                <span className="text-xs font-semibold truncate">
-                  {chart.name}
-                </span>
-
-                {/* 🔹 Chart actions (filter, edit, download, enlarge, delete) */}
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFilterMenuFor((prev) =>
-                        prev === chart.id ? null : chart.id
-                      )
-                    }
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-white/10"
-                    title="Filter chart"
-                  >
-                    <Filter className="w-3 h-3" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingChart(chart);
-                      setEditOpen(true);
-                    }}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-white/10"
-                    title="Edit chart"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadChart(chart)}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
-                    title="Download chart"
-                  >
-                    <Download className="w-3 h-3" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setEnlargedChart(chart)}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
-                    title="Expand chart"
-                  >
-                    <Maximize2 className="w-3 h-3" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDuplicateChart(chart)}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
-                    title="Duplicate chart"
-                  >
-                    <span className="text-[10px] font-semibold">2×</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleRefreshChart}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
-                    title="Refresh chart"
-                  >
-                    {/* simple visual cue; behavior is via refreshToken state */}
-                    <span className="text-[11px] font-semibold">⟳</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveChart(chart.id)}
-                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg:white/10"
-                    title="Remove chart"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-
-              {/* 🔹 Optional filter bar under header */}
-              {filterMenuFor === chart.id && (
-                <div className="px-4 py-2 bg-slate-900 text-[11px] text-gray-100 flex items-center gap-2 border-t border-slate-700">
-                  <span className="uppercase tracking-wide text-[10px] text-gray-400">
-                    Filter:
-                  </span>
-
-                  {/* Field selector (use categorical + chart.xField as default) */}
-                  <select
-                    className="rounded-md bg-slate-800 border border-slate-600 px-2 py-1 text-[11px] outline-none"
-                    value={filterField}
-                    onChange={(e) => {
-                      const field = e.target.value;
-                      setChartFilters((prev) => ({
-                        ...prev,
-                        [chart.id]: field
-                          ? {
-                            field,
-                            value: "__ALL__",
-                          }
-                          : null,
-                      }));
-                    }}
-                  >
-                    <option value={chart.xField}>{chart.xField}</option>
-                    {categoricalCols
-                      .filter((c) => c !== chart.xField)
-                      .map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                  </select>
-
-                  {/* Value selector */}
-                  <select
-                    className="rounded-md bg-slate-800 border border-slate-600 px-2 py-1 text-[11px] outline-none"
-                    value={activeFilter?.value || "__ALL__"}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value === "__CLEAR__") {
-                        setChartFilters((prev) => {
-                          const copy = { ...prev };
-                          delete copy[chart.id];
-                          return copy;
-                        });
-                        return;
-                      }
-                      setChartFilters((prev) => ({
-                        ...prev,
-                        [chart.id]: {
-                          field: filterField,
-                          value,
-                        },
-                      }));
-                    }}
-                  >
-                    <option value="__ALL__">All values</option>
-                    {uniqueValues.map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                    {activeFilter && (
-                      <option value="__CLEAR__">Clear filter</option>
-                    )}
-                  </select>
-                </div>
-              )}
-
-              {/* Chart content */}
-              <div className="p-3 flex-1 bg-slate-50">
-                <ChartFactory
-                  key={refreshToken} // 🔹 simple re-mount on refresh
-                  chart={chart}
-                  data={filteredData}
-                />
-              </div>
-            </div>
+              chart={chart}
+              data={data}
+              fullX={fullX}
+              fullY={fullY}
+              onDelete={() => handleDeleteChart(chart.id)}
+              onExpand={() => setExpandedChart(chart)}
+            />
           );
         })}
 
-        {/* Empty state */}
-        {charts.length === 0 && (
+        {visibleCharts.length === 0 && (
           <div className="col-span-full rounded-xl border border-dashed border-gray-200 p-6 flex flex-col items-center justify-center text-center">
             <p className="text-sm text-gray-600 mb-2">
               No charts yet for this dataset.
@@ -499,7 +511,6 @@ export default function DashboardSection({
         )}
       </div>
 
-      {/* Add Chart Modal */}
       <AddChartModal
         open={addOpen}
         onClose={() => setAddOpen(false)}
@@ -509,50 +520,13 @@ export default function DashboardSection({
         categoricalCols={categoricalCols}
       />
 
-      {/* 🔹 Edit Chart Modal */}
-      <EditChartModal
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        chart={editingChart}
-        columns={columns}
-        numericCols={numericCols}
-        categoricalCols={categoricalCols}
-        onSave={(updated) => {
-          if (!editingChart) return;
-          setCharts((prev) =>
-            prev.map((c) =>
-              c.id === editingChart.id ? { ...c, ...updated } : c
-            )
-          );
-        }}
-      />
-
-      {/* 🔹 Enlarged chart popup */}
-      {enlargedChart && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-5xl max-h-[90vh] rounded-2xl bg-white shadow-2xl border border-gray-200 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-              <span className="text-sm font-semibold text-gray-900 truncate">
-                {enlargedChart.name}
-              </span>
-              <button
-                onClick={() => setEnlargedChart(null)}
-                className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-            <div className="flex-1 p-4 overflow-auto bg-slate-50">
-              <ChartFactory
-                chart={enlargedChart}
-                data={applyChartFilter(
-                  data,
-                  chartFilters[enlargedChart.id] || null
-                )}
-              />
-            </div>
-          </div>
-        </div>
+      {/* Expanded (scale up) modal */}
+      {expandedChart && (
+        <ExpandedChartModal
+          chart={expandedChart}
+          data={data}
+          onClose={() => setExpandedChart(null)}
+        />
       )}
     </section>
   );

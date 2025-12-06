@@ -11,6 +11,10 @@ const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 type TreeMapChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
 export default function TreeMapChart({ chart, data }: TreeMapChartProps) {

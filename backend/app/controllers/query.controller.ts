@@ -13,11 +13,10 @@ export async function queryController(
       prompt,
       dataset,
       columns,
-      context,
-      // 🔹 NEW: multi-dataset fields
       datasets,
       activeDatasetId,
-    } = (req.body || {}) as QueryRequestBody;
+      context,
+    } = req.body || {};
 
     if (!prompt || typeof prompt !== "string") {
       return res.status(400).json({
@@ -28,18 +27,12 @@ export async function queryController(
 
     const result = await handleUserQuery({
       prompt,
-      // ✅ Legacy single-dataset support (safe defaults)
-      dataset: Array.isArray(dataset) ? dataset : [],
-      columns: Array.isArray(columns) ? columns : [],
-
-      // ✅ Optional context
+      dataset: dataset || [],
+      columns: columns || [],
+      datasets: datasets || [],
+      activeDatasetId,
       context: context || {},
-
-      // ✅ NEW: multi-dataset support (optional)
-      datasets: Array.isArray(datasets) ? datasets : undefined,
-      activeDatasetId:
-        typeof activeDatasetId === "string" ? activeDatasetId : undefined,
-    } as any); // `as any` to bridge to HandleUserQueryInput until everything is fully refactored
+    });
 
     res.json(result);
   } catch (err) {

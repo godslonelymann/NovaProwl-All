@@ -1,11 +1,11 @@
 "use client";
 
 import UploadData from "../../components/UploadData";
-
-import Papa from "papaparse";
 import { useRouter } from "next/navigation";
 import Sidebar from "../../components/Sidebar";
 import { useSessionStore } from "../../components/SessionStore";
+import Papa from "papaparse";
+import ExcelJS from "exceljs";
 
 const BACKEND = (process.env.NEXT_PUBLIC_BACKEND || "http://localhost:8000").replace(
   /\/+$/,
@@ -35,12 +35,18 @@ import {
   ArrowUp,
 } from "lucide-react";
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+
+type DatasetKind = "table" | "text" | "code" | "other";
 
 type UploadedDataset = {
   id: string;
   fileName: string;
   rows: Row[];
+  columns: string[];
+  extension?: string;
+  kind?: DatasetKind;
+  textContent?: string;
 };
 
 const spaces = [
@@ -90,6 +96,65 @@ const featureCards = [
   },
 ];
 
+const collectColumns = (rows: Row[]): string[] => {
+  if (!rows.length) return [];
+  const keys = new Set<string>();
+  rows.forEach((r) => Object.keys(r || {}).forEach((k) => keys.add(k)));
+  return Array.from(keys);
+};
+
+const parseCsvOrTsv = (file: File, delimiter?: string): Promise<Row[]> => {
+  return new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      header: true,
+      dynamicTyping: true,
+      skipEmptyLines: true,
+      delimiter,
+      complete: (results) => resolve((results.data as Row[]) || []),
+      error: (err) => reject(err),
+    });
+  });
+};
+
+const parseExcel = async (file: File): Promise<Row[]> => {
+  const buf = await file.arrayBuffer();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buf);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) return [];
+  const headerRow = sheet.getRow(1);
+  const headers = (headerRow.values || []).slice(1).map((v, idx) => (v != null ? String(v) : `Column ${idx + 1}`));
+
+  const rows: Row[] = [];
+  sheet.eachRow((row, idx) => {
+    if (idx === 1) return;
+    const record: Row = {};
+    headers.forEach((h, colIdx) => {
+      const values = row.values || [];
+      record[h] = (values as any)[colIdx + 1] ?? null;
+    });
+    rows.push(record);
+  });
+  return rows;
+};
+
+const parseJson = async (file: File): Promise<{ rows: Row[]; text?: string }> => {
+  const text = await file.text();
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed) && parsed.every((v) => typeof v === "object" && v !== null)) {
+      return { rows: parsed as Row[] };
+    }
+    return { rows: [], text };
+  } catch {
+    return { rows: [], text };
+  }
+};
+
+const parseAsText = async (file: File): Promise<string> => {
+  return file.text();
+};
+
 export default function MainInterface() {
   const [activeSpace, setActiveSpace] = useState<string>("Chat");
   const [activeTool, setActiveTool] = useState<string | undefined>(undefined);
@@ -106,7 +171,7 @@ export default function MainInterface() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  // 🔹 all datasets uploaded in this chat
+  // 🔹 ALL datasets uploaded in this chat
   const [uploadedDatasets, setUploadedDatasets] = useState<UploadedDataset[]>([]);
   const [activeDatasetId, setActiveDatasetId] = useState<string | null>(null);
 
@@ -117,10 +182,14 @@ export default function MainInterface() {
     null;
   const uploadedFileName = activeDataset?.fileName ?? null;
 
+  // 🔹 analysis view trigger (kept from your original, though /analysis is main flow)
+  const [showAnalysis, setShowAnalysis] = useState(false);
+
   // 🔹 dataset pill dropdown state (main interface)
   const [datasetPickerOpen, setDatasetPickerOpen] = useState(false);
   const datasetPickerRef = useRef<HTMLDivElement | null>(null);
 
+  // keep recentChats synced with persistent sessions
   useEffect(() => {
     setRecentChats(sessions.map((s) => s.title));
   }, [sessions]);
@@ -170,131 +239,70 @@ export default function MainInterface() {
     });
   };
 
-  // 🔹 helper: CSV → rows
-  const parseCsvFile = (file: File): Promise<Row[]> => {
-    return new Promise((resolve, reject) => {
-      Papa.parse(file, {
-        header: true,
-        dynamicTyping: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          resolve(results.data as Row[]);
-        },
-        error: (err) => reject(err),
-      });
-    });
-  };
-
-  // 🔹 helper: Excel (.xlsx / .xls) → rows using ExcelJS
-  const parseExcelFile = async (file: File): Promise<Row[]> => {
-    // dynamic import so we don't break SSR and only load in browser
-    const ExcelJS = await import("exceljs");
-    const workbook = new ExcelJS.Workbook();
-
-    const arrayBuffer = await file.arrayBuffer();
-    await workbook.xlsx.load(arrayBuffer);
-
-    const worksheet = workbook.worksheets[0];
-    if (!worksheet) return [];
-
-    const rows: Row[] = [];
-
-    // headers in first row
-    const headerRow = worksheet.getRow(1);
-    const headers: string[] = [];
-
-    headerRow.eachCell((cell, colNumber) => {
-      const v = cell.value;
-      const header =
-        typeof v === "string"
-          ? v
-          : v && typeof v === "object" && "text" in v
-          ? String((v as any).text)
-          : `Column${colNumber}`;
-      headers.push(header);
-    });
-
-    // data rows start from row 2
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return; // skip header
-      const obj: Row = {};
-      headers.forEach((h, i) => {
-        const cell = row.getCell(i + 1);
-        let value = cell.value;
-
-        // ExcelJS cell.value can be complex; flatten simple cases
-        if (value && typeof value === "object" && "text" in value) {
-          value = (value as any).text;
-        }
-
-        obj[h] = value;
-      });
-      // avoid pushing completely empty rows
-      const hasAnyValue = Object.values(obj).some(
-        (v) => v !== null && v !== undefined && v !== ""
-      );
-      if (hasAnyValue) rows.push(obj);
-    });
-
-    return rows;
-  };
-
-  // 🔹 generic dispatcher: any file → rows
-  const parseFileToRows = async (file: File): Promise<Row[]> => {
-    const ext = file.name.split(".").pop()?.toLowerCase() || "";
-
-    if (ext === "csv") {
-      return parseCsvFile(file);
-    }
-
-    if (ext === "xlsx" || ext === "xls") {
-      return parseExcelFile(file);
-    }
-
-    // fallback: try as CSV/text
-    try {
-      return await parseCsvFile(file);
-    } catch {
-      // if even CSV parse fails, return empty
-      return [];
-    }
-  };
-
   // 🔹 called by UploadData when user picks files
   const handleFilesSelected = async (files: FileList) => {
     if (!files.length) return;
-    const file = files[0];
 
     setShowSources(false);
     setUploadProgress(0);
     setUploading(true);
+    setShowAnalysis(false);
 
     try {
-      // 1) upload raw file to backend (for server-side stuff)
-      await uploadWithProgress(file);
+      const fileArray = Array.from(files);
+      const newDatasets: UploadedDataset[] = [];
 
-      // 2) parse on client into rows (supports CSV + Excel via ExcelJS)
-      const rows = await parseFileToRows(file);
+      for (const file of fileArray) {
+        // upload for persistence/progress; parse client-side for UI/state
+        try {
+          await uploadWithProgress(file);
+        } catch (e) {
+          console.warn("Upload progress call failed (continuing with local parse)", e);
+        }
 
-      const newDataset: UploadedDataset = {
-        id: `${file.name}-${Date.now()}`,
-        fileName: file.name,
-        rows,
-      };
+        const ext = (file.name.split(".").pop() || "").toLowerCase();
+        let rows: Row[] = [];
+        let textContent: string | undefined;
+
+        if (ext === "csv" || ext === "tsv") {
+          rows = await parseCsvOrTsv(file, ext === "tsv" ? "\t" : undefined);
+        } else if (ext === "xlsx" || ext === "xls") {
+          rows = await parseExcel(file);
+        } else if (ext === "json") {
+          const parsed = await parseJson(file);
+          rows = parsed.rows;
+          textContent = parsed.text;
+        } else {
+          textContent = await parseAsText(file);
+        }
+
+        const columns = collectColumns(rows);
+
+        newDatasets.push({
+          id: `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          fileName: file.name,
+          rows,
+          columns,
+          extension: ext,
+          kind: rows.length ? "table" : textContent ? "text" : "other",
+          textContent,
+        });
+      }
 
       setUploadedDatasets((prev) => {
-        const next = [...prev, newDataset];
-        if (!activeDatasetId) {
-          // if first dataset, make it active
-          setActiveDatasetId(newDataset.id);
+        const merged = [...prev, ...newDatasets];
+        // If this is the first upload, set the first dataset as active
+        if (!activeDatasetId && merged.length > 0) {
+          setActiveDatasetId(merged[0].id);
         }
-        return next;
+        return merged;
       });
     } catch (err: any) {
       console.error(err);
       alert(err?.message || "Upload failed");
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -317,16 +325,20 @@ export default function MainInterface() {
     });
     setActiveSessionId(session.id);
 
+    const effectiveActiveDatasetId =
+      activeDatasetId || uploadedDatasets[0]?.id || null;
+
     // 🔹 Save ALL datasets for this session
     localStorage.setItem(
       `novaprowl_session_data_v1_${session.id}`,
       JSON.stringify({
         datasets: uploadedDatasets,
+        activeDatasetId: effectiveActiveDatasetId,
         initialPrompt: value,
       })
     );
 
-    // legacy single-dataset keys (optional)
+    // (optional legacy keys, for fallback single-dataset flows)
     const first = uploadedDatasets[0];
     if (first) {
       sessionStorage.setItem("analysis_dataset", JSON.stringify(first.rows));
@@ -352,6 +364,7 @@ export default function MainInterface() {
             setPrompt("");
             setUploadedDatasets([]);
             setActiveDatasetId(null);
+            setShowAnalysis(false);
             setActiveSessionId(null);
           }
         }}
@@ -426,9 +439,10 @@ export default function MainInterface() {
                 {/* Buttons row */}
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                   <div className="flex flex-wrap gap-2 items-center">
+                    {/* Add data */}
                     <button
                       onClick={() => setShowSources(true)}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg:white px-3.5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
                     >
                       <Paperclip className="w-3.5 h-3.5" />
                       Add data
@@ -509,7 +523,7 @@ export default function MainInterface() {
               </div>
             </div>
 
-            {/* AnalysisPanel is rendered on /analysis route, so nothing else here */}
+            {/* (AnalysisPanel inline rendering is not used now; analysis happens on /analysis) */}
           </div>
         </div>
       </main>

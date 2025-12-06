@@ -23,6 +23,10 @@ const PALETTE = [
 type FunnelChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
 export default function FunnelChart({ chart, data }: FunnelChartProps) {

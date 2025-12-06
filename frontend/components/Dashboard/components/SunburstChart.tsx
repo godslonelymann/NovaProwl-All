@@ -22,6 +22,10 @@ const PALETTE = [
 type SunburstChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
 export default function SunburstChart({ chart, data }: SunburstChartProps) {

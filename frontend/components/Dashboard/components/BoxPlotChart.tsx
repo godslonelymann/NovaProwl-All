@@ -10,6 +10,10 @@ const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 type BoxPlotChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
 // 🔹 Robust numeric parser for any dataset
@@ -40,7 +44,7 @@ function toNumeric(value: unknown): number | null {
   return Number.isFinite(coerced) ? coerced : null;
 }
 
-export default function BoxPlotChart({ chart, data }: BoxPlotChartProps) {
+export default function BoxPlotChart({ chart, data, ranges }: BoxPlotChartProps) {
   const { xField, yField } = chart;
 
   const { traces, hasData } = useMemo(() => {
@@ -103,10 +107,12 @@ export default function BoxPlotChart({ chart, data }: BoxPlotChartProps) {
         xaxis: {
           title: xField || "",
           zeroline: false,
+          range: ranges?.xRange ?? undefined,
         },
         yaxis: {
           title: numericField,
           zeroline: false,
+          range: ranges?.yRange ?? undefined,
         },
         showlegend: !!xField,
       }}

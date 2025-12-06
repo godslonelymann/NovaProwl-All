@@ -22,9 +22,13 @@ const PALETTE = [
 type ScatterChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
-export default function ScatterChart({ chart, data }: ScatterChartProps) {
+export default function ScatterChart({ chart, data, ranges }: ScatterChartProps) {
   // For scatter we treat x = labels, y = values (same aggregation logic)
   const agg = chart.agg || "sum";
 
@@ -65,8 +69,8 @@ export default function ScatterChart({ chart, data }: ScatterChartProps) {
         margin: { l: 40, r: 20, t: 10, b: 40 },
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
-        xaxis: { title: chart.xField },
-        yaxis: { title: yTitle },
+        xaxis: { title: chart.xField, range: ranges?.xRange ?? undefined },
+        yaxis: { title: yTitle, range: ranges?.yRange ?? undefined },
       }}
       useResizeHandler
       style={{ width: "100%", height: 260 }}

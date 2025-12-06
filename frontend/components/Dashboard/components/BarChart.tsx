@@ -24,9 +24,13 @@ const PALETTE = [
 type BarChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
-export default function BarChart({ chart, data }: BarChartProps) {
+export default function BarChart({ chart, data, ranges }: BarChartProps) {
   // 🔥 Make agg always safe
   const agg = chart.agg || "sum";
 
@@ -65,8 +69,8 @@ export default function BarChart({ chart, data }: BarChartProps) {
         margin: { l: 40, r: 20, t: 10, b: 40 },
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
-        xaxis: { title: chart.xField, tickangle: -30 },
-        yaxis: { title: yTitle },
+        xaxis: { title: chart.xField, tickangle: -30, range: ranges?.xRange ?? undefined },
+        yaxis: { title: yTitle, range: ranges?.yRange ?? undefined },
       }}
       useResizeHandler
       style={{ width: "100%", height: 260 }}

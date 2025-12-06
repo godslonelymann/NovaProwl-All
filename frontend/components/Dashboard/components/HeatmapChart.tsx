@@ -12,9 +12,13 @@ const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 type HeatmapChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
-export default function HeatmapChart({ chart, data }: HeatmapChartProps) {
+export default function HeatmapChart({ chart, data, ranges }: HeatmapChartProps) {
   const { labels, values } = useMemo(
     () => safeAggregate(data, chart.xField, chart.yField, chart.agg),
     [data, chart.xField, chart.yField, chart.agg]
@@ -51,9 +55,11 @@ export default function HeatmapChart({ chart, data }: HeatmapChartProps) {
         xaxis: {
           title: chart.xField,
           tickangle: -30,
+          range: ranges?.xRange ?? undefined,
         },
         yaxis: {
           title: "",
+          range: ranges?.yRange ?? undefined,
         },
       }}
       config={{

@@ -2,17 +2,19 @@
 import {
   AnalysisResult,
   DatasetRow,
-  QueryRequestBody,
   SuggestedChart,
-  // 🔹 NEW: multi-dataset payload type
-  DatasetPayload,
+  QueryDatasetPayload,
 } from "../types/query";
 import { callLLM } from "./llm.service";
 
-interface HandleUserQueryInput extends QueryRequestBody {
-  // For backward compatibility: controller currently passes these
-  dataset: DatasetRow[];
-  columns: string[];
+interface HandleUserQueryInput {
+  prompt: string;
+  datasets: QueryDatasetPayload[];
+  activeDatasetId?: string;
+  context?: Record<string, unknown>;
+  // Legacy fallbacks
+  dataset?: DatasetRow[];
+  columns?: string[];
 }
 
 /**
@@ -23,9 +25,8 @@ You are NovaProwl's senior data analyst.
 
 Your job:
 - Read the user's question.
-- Use the dataset snapshot you receive.
-- Answer in **clean, well-structured GitHub-Flavoured Markdown**,
-  similar to how ChatGPT would explain things.
+- Use the dataset snapshot(s) you receive.
+- Answer in **clean, well-structured GitHub-Flavoured Markdown**.
 
 Style requirements:
 - Use clear section headings with "##" and "###".
@@ -33,140 +34,81 @@ Style requirements:
 - Use bullet lists where it helps readability.
 - Use short paragraphs (2–4 sentences).
 - Include at least ONE markdown table when it makes sense.
-- Tables must use pipes and header rows, for example:
-
-  | Metric | Value / Description |
-  | ------ | ------------------- |
-  | Total Revenue | Rough description or approximate value |
-  | Total Profit  | Rough description or approximate value |
-
-- You may use emojis sparingly (for emphasis or friendliness), but do NOT overuse them.
-- You may describe totals or averages roughly; do not hallucinate very precise numbers
-  unless they are clearly inferable from the sample rows.
 
 Very important:
 - **Always focus on the user's prompt.**
-  - If they ask about trends, talk about trends.
-  - If they ask about outliers, talk about outliers.
-  - If they ask for suggestions, focus on recommendations.
-- You can briefly mention a high-level overview of the dataset once, but do NOT
-  repeat the same generic introduction for every answer.
-`;
-
-/* ------------------------------------------------------------------
- * 🔹 HELPER: resolve active dataset (works for single & multi)
- * ------------------------------------------------------------------ */
-function resolveActiveDataset(input: HandleUserQueryInput) {
-  const multi = input.datasets as DatasetPayload[] | undefined;
-
-  if (multi && multi.length > 0) {
-    const activeId = input.activeDatasetId || multi[0].id;
-    const active =
-      multi.find((d) => d.id === activeId) ?? multi[0];
-
-    const activeRows: DatasetRow[] = active.rows ?? [];
-    const activeColumns: string[] = active.columns ?? [];
-
-    const allDatasetsSummary = multi
-      .map((d) => {
-        const rowCount = d.rows?.length ?? 0;
-        const colCount = d.columns?.length ?? 0;
-        return `- ${d.name} (id: ${d.id}) – ${rowCount} rows, ${colCount} columns`;
-      })
-      .join("\n");
-
-    return {
-      activeId: active.id,
-      activeName: active.name,
-      activeRows,
-      activeColumns,
-      allDatasetsSummary,
-    };
-  }
-
-  // 🔙 Fallback: legacy single-dataset mode
-  const rows = input.dataset ?? [];
-  const cols =
-    input.columns && input.columns.length > 0
-      ? input.columns
-      : rows.length > 0
-      ? Object.keys(rows[0])
-      : [];
-
-  const rowCount = rows.length;
-  const colCount = cols.length;
-
-  const nameFromContext =
-    (input.context as any)?.fileName ||
-    "Dataset";
-
-  const allDatasetsSummary = `- ${nameFromContext} – ${rowCount} rows, ${colCount} columns`;
-
-  return {
-    activeId: undefined as string | undefined,
-    activeName: nameFromContext as string,
-    activeRows: rows,
-    activeColumns: cols,
-    allDatasetsSummary,
-  };
-}
+- If multiple datasets are provided, clearly state which dataset(s) you are using in each part of your explanation (by file name or id).
+- Prefer the ACTIVE dataset for KPIs and charts unless the question requires multiple datasets.
+- When the question implies comparisons/joins/correlations, use ALL relevant datasets and explain the linkage (common columns, matching ids, time alignment, or inferred joins).
+- If suggesting charts, mention which dataset(s) the axes come from.`;
 
 /**
  * Build the concrete user prompt for the LLM:
- * includes question, ALL datasets summary and sample rows of ACTIVE dataset.
+ * includes question, all dataset info and a few sample rows.
  */
 function buildAnswerPrompt(input: HandleUserQueryInput): string {
-  const { prompt, dataset, columns, datasets, activeDatasetId, context } = input;
+  const { prompt, datasets, activeDatasetId, context, dataset, columns } = input;
 
-  const hasMulti = datasets && datasets.length > 0;
+  const datasetsToDescribe = datasets && datasets.length ? datasets : [];
 
-  let datasetsSection = "";
+  const commonColumns = findCommonColumns(datasetsToDescribe);
+  const correlationHints =
+    commonColumns.length > 0
+      ? [
+          "",
+          "Detected common columns across datasets (potential join keys):",
+          commonColumns.map((c) => `- ${c}`).join("\n"),
+          "",
+        ].join("\n")
+      : "";
 
-  if (hasMulti) {
-    datasetsSection =
-      "We have multiple datasets loaded in this session.\n\n" +
-      datasets
-        .map((ds, idx) => {
-          const rowCount = ds.rows?.length ?? 0;
-          const sampleRows = ds.rows.slice(0, 5);
-          return [
-            `### Dataset ${idx + 1}: ${ds.fileName} (id: ${ds.id})`,
-            `- Rows: ${rowCount}`,
-            `- Columns: ${ds.columns.length ? ds.columns.join(", ") : "none"}`,
-            "",
-            "Sample rows:",
-            "```json",
-            JSON.stringify(sampleRows, null, 2),
-            "```",
-            "",
-          ].join("\n");
-        })
-        .join("\n");
-  } else {
-    const rowCount = dataset?.length ?? 0;
-    const sampleRows = dataset.slice(0, 5);
-    datasetsSection = [
-      "Single dataset overview:",
-      `- Rows: ${rowCount}`,
-      `- Columns: ${columns.length ? columns.join(", ") : "none"}`,
-      "",
-      "Sample rows:",
-      "```json",
-      JSON.stringify(sampleRows, null, 2),
-      "```",
-      "",
-    ].join("\n");
-  }
+  const datasetsSection = datasetsToDescribe
+    .map((ds, idx) => {
+      const rowCount = ds.rows?.length ?? 0;
+      const sampleRows = (ds.rows || []).slice(0, 5);
+      return [
+        `### Dataset ${idx + 1}: ${ds.fileName} (id: ${ds.id}${
+          ds.extension ? `, ext: ${ds.extension}` : ""
+        })`,
+        `- Rows: ${rowCount}`,
+        `- Columns: ${
+          ds.columns && ds.columns.length ? ds.columns.join(", ") : "none"
+        }`,
+        "",
+        "Sample rows (up to 5):",
+        "```json",
+        JSON.stringify(sampleRows, null, 2),
+        "```",
+        "",
+      ].join("\n");
+    })
+    .join("\n");
+
+  const legacySection =
+    !datasetsToDescribe.length && dataset && columns
+      ? [
+          "### Legacy dataset (single):",
+          `- Rows: ${dataset.length}`,
+          `- Columns: ${columns.length ? columns.join(", ") : "none"}`,
+          "",
+          "Sample rows (up to 5):",
+          "```json",
+          JSON.stringify(dataset.slice(0, 5), null, 2),
+          "```",
+          "",
+        ].join("\n")
+      : "";
 
   return [
     `User question:`,
     prompt || "(no explicit question provided)",
     "",
-    hasMulti
+    datasetsToDescribe.length
       ? `Active dataset in UI: ${activeDatasetId || "not specified"}`
       : "",
     "",
-    datasetsSection,
+    datasetsSection || legacySection,
+    correlationHints,
     "",
     "Optional context (if any):",
     "```json",
@@ -175,13 +117,14 @@ function buildAnswerPrompt(input: HandleUserQueryInput): string {
     "",
     "Instructions:",
     "- You may use one or more datasets depending on the question.",
-    "- If the user explicitly mentions multiple files/datasets, compare or join them when appropriate.",
-    "- Clearly mention which dataset(s) your insights come from.",
+    "- Use the active dataset primarily for KPIs/charts; optionally cross-reference others for comparisons/correlations.",
+    "- If the user explicitly mentions multiple files/datasets, compare or relate them.",
+    "- Clearly mention which dataset(s) your insights come from (by file name or id).",
   ].join("\n");
 }
 
 /* ------------------------------------------------------------------
- * 🔹 HELPER: detect numeric columns from a dataset
+ * detect numeric columns from the dataset
  * ------------------------------------------------------------------ */
 function getNumericColumnsForInference(
   dataset: DatasetRow[],
@@ -198,18 +141,62 @@ function getNumericColumnsForInference(
   );
 }
 
+function findCommonColumns(datasets: QueryDatasetPayload[]): string[] {
+  if (!datasets || datasets.length < 2) return [];
+  const columnSets = datasets.map((ds) => new Set(ds.columns || []));
+  const [first, ...rest] = columnSets;
+  const commons: string[] = [];
+  first.forEach((col) => {
+    if (rest.every((set) => set.has(col))) commons.push(col);
+  });
+  return commons;
+}
+
+function getNumericColumns(dataset: QueryDatasetPayload): string[] {
+  const cols = dataset.columns || [];
+  return cols.filter((col) =>
+    dataset.rows.some((row) => {
+      const v = (row as any)[col];
+      if (typeof v === "number") return true;
+      const n = Number(v);
+      return !Number.isNaN(n) && v !== "" && v !== null && v !== undefined;
+    })
+  );
+}
+
 /* ------------------------------------------------------------------
- * 🔹 HELPER: infer chart config from the user prompt
- *      - Now uses the ACTIVE dataset resolved above
- *      - Tags chart with datasetId when available
+ * pick dataset + columns for chart inference (active dataset priority)
+ * ------------------------------------------------------------------ */
+function getDatasetForCharts(
+  input: HandleUserQueryInput
+): { rows: DatasetRow[]; columns: string[] } {
+  if (input.datasets && input.datasets.length) {
+    const active =
+      input.datasets.find((ds) => ds.id === input.activeDatasetId) ||
+      input.datasets[0];
+    return {
+      rows: active?.rows || [],
+      columns: active?.columns || [],
+    };
+  }
+
+  return {
+    rows: input.dataset || [],
+    columns: input.columns || [],
+  };
+}
+
+/* ------------------------------------------------------------------
+ * infer chart config from the user prompt (single active dataset)
  * ------------------------------------------------------------------ */
 function inferChartsFromPrompt(
   input: HandleUserQueryInput
 ): SuggestedChart[] {
   const { prompt = "" } = input;
+  const { rows: dataset, columns } = getDatasetForCharts(input);
+
   const lower = prompt.toLowerCase();
 
-  // Only try to infer a chart if user clearly mentions a chart/graph/plot
   const wantsChart = [
     "chart",
     "graph",
@@ -221,24 +208,15 @@ function inferChartsFromPrompt(
   ].some((word) => lower.includes(word));
 
   if (!wantsChart) return [];
+  if (!columns.length || !dataset.length) return [];
 
-  const {
-    activeId,
-    activeRows,
-    activeColumns,
-  } = resolveActiveDataset(input);
-
-  if (!activeColumns.length || !activeRows.length) return [];
-
-  const numericCols = getNumericColumnsForInference(activeRows, activeColumns);
-  const categoricalCols = activeColumns.filter(
+  const numericCols = getNumericColumnsForInference(dataset, columns);
+  const categoricalCols = columns.filter(
     (c) => !numericCols.includes(c)
   );
 
-  // if we still can't find sensible columns, bail out
   if (!numericCols.length || !categoricalCols.length) return [];
 
-  // Decide chart type based on keywords (very simple heuristic)
   let chartType: SuggestedChart["type"] = "bar";
   if (lower.includes("line")) chartType = "line";
   else if (lower.includes("pie")) chartType = "pie";
@@ -248,7 +226,6 @@ function inferChartsFromPrompt(
   else if (lower.includes("area")) chartType = "area";
   else if (lower.includes("heatmap")) chartType = "heatmap";
 
-  // Try to parse a "X by Y" pattern: e.g. "profit by trader"
   let xField = categoricalCols[0];
   let yField: string | undefined = numericCols[0];
 
@@ -257,32 +234,24 @@ function inferChartsFromPrompt(
     const left = lower.slice(0, byIndex).trim();
     const right = lower.slice(byIndex + 4).trim();
 
-    // Match right side to a column (dimension)
-    const matchedDim = activeColumns.find(
+    const matchedDim = columns.find(
       (col) =>
         right.includes(col.toLowerCase()) ||
         col.toLowerCase().includes(right)
     );
-    if (matchedDim) {
-      xField = matchedDim;
-    }
+    if (matchedDim) xField = matchedDim;
 
-    // Match left side to a numeric column (metric)
     const matchedMetric = numericCols.find(
       (col) =>
         left.includes(col.toLowerCase()) ||
         col.toLowerCase().includes(left)
     );
-    if (matchedMetric) {
-      yField = matchedMetric;
-    }
+    if (matchedMetric) yField = matchedMetric;
   }
 
-  // Fallbacks if we somehow lost them
-  if (!xField) xField = activeColumns[0];
+  if (!xField) xField = columns[0];
   if (!yField) yField = numericCols[0];
 
-  // Decide aggregation: default to sum for metrics like revenue, profit, value
   let agg: SuggestedChart["agg"] = "sum";
   if (lower.includes("average") || lower.includes("avg") || lower.includes("mean")) {
     agg = "avg";
@@ -301,19 +270,53 @@ function inferChartsFromPrompt(
     yField,
     agg,
     description: `Auto-generated from prompt: "${prompt}"`,
-    // 🔹 IMPORTANT: tie chart to the active dataset so frontend knows which one
-    datasetId: activeId,
   };
 
   return [suggested];
 }
 
+function inferCrossDatasetCharts(
+  input: HandleUserQueryInput
+): SuggestedChart[] {
+  const { prompt = "", datasets } = input;
+  if (!datasets || datasets.length < 2) return [];
+  const lower = prompt.toLowerCase();
+  const wantsCompare = ["compare", "versus", "vs", "correlat", "relationship"].some(
+    (word) => lower.includes(word)
+  );
+  if (!wantsCompare) return [];
+
+  const commons = findCommonColumns(datasets);
+  const charts: SuggestedChart[] = [];
+
+  // pick first two datasets with any numeric columns
+  const withNumeric = datasets.filter((ds) => getNumericColumns(ds).length);
+  if (withNumeric.length < 2) return charts;
+
+  const dsA = withNumeric[0];
+  const dsB = withNumeric[1];
+  const numA = getNumericColumns(dsA)[0];
+  const numB = getNumericColumns(dsB)[0];
+  const joinKey = commons[0] || dsA.columns[0] || dsB.columns[0];
+
+  if (numA && numB) {
+    charts.push({
+      id: `multi-chart-${Date.now()}`,
+      title: `Compare ${numA} (${dsA.fileName}) vs ${numB} (${dsB.fileName})`,
+      type: "scatter",
+      xField: `${dsA.fileName}:${numA}${joinKey ? ` by ${joinKey}` : ""}`,
+      yField: `${dsB.fileName}:${numB}`,
+      description: `Cross-dataset comparison using ${
+        joinKey ? `join on ${joinKey}` : "aligned order"
+      }.`,
+    });
+  }
+
+  return charts;
+}
+
 /**
  * Main handler used by the query controller.
- * Returns AnalysisResult expected by the frontend.
- *
- * NOTE: still accepts HandleUserQueryInput (with dataset + columns required),
- * but also understands multi-dataset via `datasets` + `activeDatasetId`.
  */
 export async function handleUserQuery(
   input: HandleUserQueryInput
@@ -325,14 +328,19 @@ export async function handleUserQuery(
     { role: "user", content: userPrompt },
   ]);
 
-  // 🔹 NEW: infer charts from ACTIVE dataset
-  const inferredCharts = inferChartsFromPrompt(input);
+  const inferredCharts = inferChartsFromPrompt({
+    ...input,
+    // ensure we pass a concrete dataset & columns for chart inference
+    dataset: input.dataset,
+    columns: input.columns,
+  });
+  const crossDatasetCharts = inferCrossDatasetCharts(input);
 
   const result: AnalysisResult = {
     summary: answerMarkdown,
     insights: [],
     kpis: [],
-    charts: inferredCharts,
+    charts: [...inferredCharts, ...crossDatasetCharts],
     followUpQuestions: [],
     rawText: answerMarkdown,
   };

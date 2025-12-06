@@ -10,9 +10,13 @@ const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 type HistogramChartProps = {
   chart: ChartConfig;
   data: Row[];
+  ranges?: {
+    xRange?: [number, number] | null;
+    yRange?: [number, number] | null;
+  };
 };
 
-export default function HistogramChart({ chart, data }: HistogramChartProps) {
+export default function HistogramChart({ chart, data, ranges }: HistogramChartProps) {
   // Try using yField → else xField → else auto-detect first numeric column
   let numericField = chart.yField || chart.xField;
 
@@ -82,9 +86,11 @@ export default function HistogramChart({ chart, data }: HistogramChartProps) {
         xaxis: {
           title: numericField,
           zeroline: false,
+          range: ranges?.xRange ?? undefined,
         },
         yaxis: {
           title: "Count",
+          range: ranges?.yRange ?? undefined,
         },
       }}
       config={{

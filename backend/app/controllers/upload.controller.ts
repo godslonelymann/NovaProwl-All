@@ -17,15 +17,10 @@ export async function handleUpload(
         .json({ message: "No file uploaded. Please use field name 'file'." });
     }
 
-    const { rows, columns } = await parseUploadedFile(file);
+    const dataset = await parseUploadedFile(file);
 
     return res.json({
-      columns,
-      rows,
-      meta: {
-        rowCount: rows.length,
-        fileName: file.originalname,
-      },
+      dataset,
     });
   } catch (err) {
     next(err);
