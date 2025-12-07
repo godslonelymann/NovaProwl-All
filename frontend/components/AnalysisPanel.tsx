@@ -27,6 +27,7 @@ import remarkGfm from "remark-gfm";
 import GlobalFilters from "./GlobalFilters";
 import KPISection from "./KPISection";
 import DashboardSection from "./Dashboard/DashboardSection";
+import { useSessionStore } from "./SessionStore";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -48,6 +49,7 @@ type AnalysisPanelProps = {
   datasets: UploadedDataset[];
   activeDatasetId: string;
   initialPrompt?: string;
+  sessionId?: string | null;
 };
 
 type ChatRole = "user" | "assistant";
@@ -93,7 +95,14 @@ type BackendChart = {
   description?: string;
 };
 
-const STORAGE_MESSAGES_KEY = "analysis_messages";
+const BASE_STORAGE_MESSAGES_KEY = "analysis_messages";
+
+function getMessagesStorageKey(sessionId?: string | null) {
+  if (sessionId && typeof sessionId === "string" && sessionId.length > 0) {
+    return `${BASE_STORAGE_MESSAGES_KEY}_${sessionId}`;
+  }
+  return BASE_STORAGE_MESSAGES_KEY;
+}
 
 const BACKEND =
   (process.env.NEXT_PUBLIC_BACKEND || "http://localhost:8000").replace(
@@ -105,8 +114,10 @@ export default function AnalysisPanel({
   datasets,
   activeDatasetId: incomingActiveDatasetId,
   initialPrompt,
+  sessionId,
 }: AnalysisPanelProps) {
   const router = useRouter();
+  const { setActiveSessionId } = useSessionStore();
 
   // Sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -130,6 +141,11 @@ export default function AnalysisPanel({
 
   const currentRows: Row[] = activeDataset?.rows || [];
   const currentFileName = activeDataset?.fileName || "Dataset";
+
+  const storageKey = useMemo(
+    () => getMessagesStorageKey(sessionId),
+    [sessionId]
+  );
 
   // dataset picker pill state
   const [datasetPickerOpen, setDatasetPickerOpen] = useState(false);
@@ -231,27 +247,27 @@ export default function AnalysisPanel({
     [currentRows, page]
   );
 
-  // chat state
+  // ---------------- CHAT STATE (logic-only changes here) ----------------
+
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    if (!initialPrompt) return [];
-    return [
-      {
-        id: 1,
-        role: "user",
-        content: initialPrompt,
-      },
-      {
-        id: 2,
-        role: "assistant",
-        content:
-          "I’ll help you explore this dataset. You can ask for summaries, trends, or specific visualizations.",
-      },
-    ];
+    try {
+      if (typeof window !== "undefined") {
+        let restored: ChatMessage[] = [];
+        const stored = sessionStorage.getItem(storageKey);
+        if (stored) restored = JSON.parse(stored);
+        return restored || [];
+      }
+    } catch {
+      // ignore parse errors
+    }
+    return [];
   });
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const initialPromptSentRef = useRef(false);
 
   // tools state
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -262,10 +278,7 @@ export default function AnalysisPanel({
   const [chartsFromPrompt, setChartsFromPrompt] = useState<BackendChart[]>([]);
 
   // chart config from prompt (same as before, uses `columns`)
-  function buildChartConfigFromPrompt(
-    prompt: string,
-    columns: string[]
-  ) {
+  function buildChartConfigFromPrompt(prompt: string, columns: string[]) {
     const lower = prompt.toLowerCase();
 
     const wantsChart = [
@@ -299,10 +312,14 @@ export default function AnalysisPanel({
     else if (lower.includes("donut")) type = "donut";
     else if (lower.includes("scatter")) type = "scatter";
     else if (lower.includes("histogram")) type = "histogram";
-    else if (lower.includes("box plot") || lower.includes("boxplot")) type = "box";
-    else if (lower.includes("treemap") || lower.includes("tree map")) type = "treemap";
-    else if (lower.includes("area chart") || lower.includes("area")) type = "area";
-    else if (lower.includes("heatmap") || lower.includes("heat map")) type = "heatmap";
+    else if (lower.includes("box plot") || lower.includes("boxplot"))
+      type = "box";
+    else if (lower.includes("treemap") || lower.includes("tree map"))
+      type = "treemap";
+    else if (lower.includes("area chart") || lower.includes("area"))
+      type = "area";
+    else if (lower.includes("heatmap") || lower.includes("heat map"))
+      type = "heatmap";
     else if (lower.includes("radar")) type = "radar";
     else if (lower.includes("bubble")) type = "bubble";
     else if (lower.includes("funnel")) type = "funnel";
@@ -323,11 +340,7 @@ export default function AnalysisPanel({
     if (lower.includes("count")) agg = "count";
 
     const aggLabel =
-      agg === "avg"
-        ? "Average"
-        : agg === "count"
-        ? "Count"
-        : "Sum";
+      agg === "avg" ? "Average" : agg === "count" ? "Count" : "Sum";
 
     let prettyName: string;
 
@@ -354,11 +367,11 @@ export default function AnalysisPanel({
     };
   }
 
-  // load persisted messages
+  // load persisted messages (if any) from sessionStorage for this session
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const storedMsgs = sessionStorage.getItem(STORAGE_MESSAGES_KEY);
+      const storedMsgs = sessionStorage.getItem(storageKey);
       if (storedMsgs) {
         const parsed: ChatMessage[] = JSON.parse(storedMsgs);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -366,19 +379,36 @@ export default function AnalysisPanel({
         }
       }
     } catch (err) {
-      console.error("Failed to load analysis state from sessionStorage", err);
+      console.error(
+        "Failed to load analysis messages for this session from sessionStorage",
+        err
+      );
     }
-  }, []);
+  }, [storageKey]);
 
   // persist messages
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      sessionStorage.setItem(STORAGE_MESSAGES_KEY, JSON.stringify(messages));
+      sessionStorage.setItem(storageKey, JSON.stringify(messages));
     } catch (err) {
-      console.error("Failed to store analysis messages", err);
+      console.error("Failed to store analysis messages for this session", err);
     }
-  }, [messages]);
+  }, [messages, storageKey]);
+
+  // 🔥 Auto-send the initial prompt ONCE when:
+  // - we've finished hydrating from storage
+  // - there are NO existing messages
+  // - we have an `initialPrompt`
+  useEffect(() => {
+    if (!initialPrompt) return;
+    if (initialPromptSentRef.current) return;
+    if (messages.length > 0) return;
+
+    initialPromptSentRef.current = true;
+    sendPrompt(initialPrompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt, messages]);
 
   // keep chat scrolled to bottom
   useEffect(() => {
@@ -460,7 +490,8 @@ export default function AnalysisPanel({
             id: ds.id,
             fileName: ds.fileName,
             rows: ds.rows,
-            columns: ds.columns || (ds.rows.length ? Object.keys(ds.rows[0]) : []),
+            columns:
+              ds.columns || (ds.rows.length ? Object.keys(ds.rows[0]) : []),
             extension: ds.extension,
             kind: ds.kind,
             textContent: ds.textContent,
@@ -497,7 +528,9 @@ export default function AnalysisPanel({
           setChartsFromPrompt(
             result.charts.filter(
               (c: BackendChart) =>
-                c && typeof c.title === "string" && typeof c.xField === "string"
+                c &&
+                typeof c.title === "string" &&
+                typeof c.xField === "string"
             )
           );
         } else {
@@ -602,18 +635,34 @@ export default function AnalysisPanel({
         onSpaceChange={(label) => {
           setActiveSpace(label);
           if (label === "Chat") {
-            router.push("/");
+            // 🔥 Always start a completely fresh chat
+
+            // 1) Clear stored messages for this session (if any)
+            try {
+              if (typeof window !== "undefined") {
+                const key = getMessagesStorageKey(sessionId);
+                sessionStorage.removeItem(key);
+              }
+            } catch (err) {
+              console.error("Failed to clear analysis messages on Chat click", err);
+            }
+
+            // 2) Clear active session so MainInterface starts a brand new one
+            setActiveSessionId(null);
+
+            // 3) Go to mainInterface (fresh entry point)
+            router.push("/mainInterface");
           }
         }}
         onChatsEmpty={() => router.push("/mainInterface")}
       />
 
       {/* RIGHT: header + resizable layout */}
-      <main className="flex-1 flex flex-col bg-white min-w-0">
+      <main className="flex-1 flex flex-col bg_white min-w-0">
         {/* Header */}
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-100 bg-white flex-shrink-0">
           <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
+            <div className="flex items_center gap-2">
               <h1 className="font-semibold text-gray-900">
                 {currentFileName || "Data Summary Request"}
               </h1>
@@ -735,7 +784,7 @@ export default function AnalysisPanel({
                 >
                   <div className="flex gap-[2px]">
                     <div className="w-[2px] h-3 bg-gray-300 rounded-full" />
-                    <div className="w-[2px] h-3 bg-gray-300 rounded-full" />
+                    <div className="w-[2px] h-3 bg-gray-300 rounded_full" />
                   </div>
                 </div>
               </div>
@@ -756,7 +805,7 @@ export default function AnalysisPanel({
                         className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-sm ${
                           m.role === "user"
                             ? "bg-white border border-gray-200 text-gray-800 rounded-tr-none"
-                            : "bg-white border border-emerald-100 text-gray-800"
+                            : "bg_white border border-emerald-100 text-gray-800"
                         }`}
                       >
                         <div className="flex items-center gap-2 mb-1 text-[11px] font-medium text-gray-500">
@@ -889,7 +938,7 @@ export default function AnalysisPanel({
                           <div className="absolute bottom-10 right-0 w-64 rounded-2xl bg-white shadow-xl border border-gray-200 py-2 text-sm z-50">
                             <button
                               onClick={handleAddDataClick}
-                              className="w-full flex items-center gap-2 px-4 py-2 hover:bg-gray-50 hover:rounded-full text-gray-800"
+                              className="w-full flex items_center gap-2 px-4 py-2 hover:bg-gray-50 hover:rounded-full text-gray-800"
                             >
                               <span className="text-lg">📎</span>
                               <span>Add data</span>

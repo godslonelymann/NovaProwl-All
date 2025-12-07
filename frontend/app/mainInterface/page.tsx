@@ -1,3 +1,4 @@
+// app/mainInterface/page.tsx
 "use client";
 
 import UploadData from "../../components/UploadData";
@@ -6,13 +7,14 @@ import Sidebar from "../../components/Sidebar";
 import { useSessionStore } from "../../components/SessionStore";
 import Papa from "papaparse";
 import ExcelJS from "exceljs";
+import { useSession } from "next-auth/react";
 
 const BACKEND = (process.env.NEXT_PUBLIC_BACKEND || "http://localhost:8000").replace(
   /\/+$/,
   ""
 );
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -123,7 +125,9 @@ const parseExcel = async (file: File): Promise<Row[]> => {
   const sheet = workbook.worksheets[0];
   if (!sheet) return [];
   const headerRow = sheet.getRow(1);
-  const headers = (headerRow.values || []).slice(1).map((v, idx) => (v != null ? String(v) : `Column ${idx + 1}`));
+  const headers = (headerRow.values || [])
+    .slice(1)
+    .map((v, idx) => (v != null ? String(v) : `Column ${idx + 1}`));
 
   const rows: Row[] = [];
   sheet.eachRow((row, idx) => {
@@ -131,14 +135,16 @@ const parseExcel = async (file: File): Promise<Row[]> => {
     const record: Row = {};
     headers.forEach((h, colIdx) => {
       const values = row.values || [];
-      record[h] = (values as any)[colIdx + 1] ?? null;
+      (record as any)[h] = (values as any)[colIdx + 1] ?? null;
     });
     rows.push(record);
   });
   return rows;
 };
 
-const parseJson = async (file: File): Promise<{ rows: Row[]; text?: string }> => {
+const parseJson = async (
+  file: File
+): Promise<{ rows: Row[]; text?: string }> => {
   const text = await file.text();
   try {
     const parsed = JSON.parse(text);
@@ -156,6 +162,15 @@ const parseAsText = async (file: File): Promise<string> => {
 };
 
 export default function MainInterface() {
+  const { data: session } = useSession();
+  const userName = session?.user?.name || "there";
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 0 && hour < 12) return "Good Morning";
+    if (hour >= 12 && hour < 17) return "Good Afternoon";
+    return "Good Evening";
+  }, []);
+
   const [activeSpace, setActiveSpace] = useState<string>("Chat");
   const [activeTool, setActiveTool] = useState<string | undefined>(undefined);
   const router = useRouter();
@@ -172,7 +187,9 @@ export default function MainInterface() {
   const [uploadProgress, setUploadProgress] = useState(0);
 
   // 🔹 ALL datasets uploaded in this chat
-  const [uploadedDatasets, setUploadedDatasets] = useState<UploadedDataset[]>([]);
+  const [uploadedDatasets, setUploadedDatasets] = useState<UploadedDataset[]>(
+    []
+  );
   const [activeDatasetId, setActiveDatasetId] = useState<string | null>(null);
 
   // derived: currently selected dataset for pill in main interface
@@ -182,7 +199,7 @@ export default function MainInterface() {
     null;
   const uploadedFileName = activeDataset?.fileName ?? null;
 
-  // 🔹 analysis view trigger (kept from your original, though /analysis is main flow)
+  // 🔹 analysis view trigger (not used for routing now, but kept)
   const [showAnalysis, setShowAnalysis] = useState(false);
 
   // 🔹 dataset pill dropdown state (main interface)
@@ -257,7 +274,10 @@ export default function MainInterface() {
         try {
           await uploadWithProgress(file);
         } catch (e) {
-          console.warn("Upload progress call failed (continuing with local parse)", e);
+          console.warn(
+            "Upload progress call failed (continuing with local parse)",
+            e
+          );
         }
 
         const ext = (file.name.split(".").pop() || "").toLowerCase();
@@ -279,7 +299,9 @@ export default function MainInterface() {
         const columns = collectColumns(rows);
 
         newDatasets.push({
-          id: `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id: `${file.name}-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
           fileName: file.name,
           rows,
           columns,
@@ -325,26 +347,27 @@ export default function MainInterface() {
     });
     setActiveSessionId(session.id);
 
+    if (typeof window !== "undefined") {
+      const perSessionKey = `analysis_messages_${session.id}`;
+      sessionStorage.removeItem(perSessionKey);
+    }
+
     const effectiveActiveDatasetId =
       activeDatasetId || uploadedDatasets[0]?.id || null;
 
-    // 🔹 Save ALL datasets for this session
-    localStorage.setItem(
-      `novaprowl_session_data_v1_${session.id}`,
-      JSON.stringify({
-        datasets: uploadedDatasets,
-        activeDatasetId: effectiveActiveDatasetId,
-        initialPrompt: value,
-      })
-    );
-
-    // (optional legacy keys, for fallback single-dataset flows)
-    const first = uploadedDatasets[0];
-    if (first) {
-      sessionStorage.setItem("analysis_dataset", JSON.stringify(first.rows));
-      sessionStorage.setItem("analysis_file", first.fileName);
-      sessionStorage.setItem("analysis_prompt", value);
+    // 🔹 Save ALL datasets + active ID + initial prompt for this session
+    if (typeof window !== "undefined") {
+      localStorage.setItem(
+        `novaprowl_session_data_v1_${session.id}`,
+        JSON.stringify({
+          datasets: uploadedDatasets,
+          activeDatasetId: effectiveActiveDatasetId,
+          initialPrompt: value,
+        })
+      );
     }
+
+    // (legacy sessionStorage usage removed)
 
     router.push("/analysis");
   };
@@ -366,6 +389,16 @@ export default function MainInterface() {
             setActiveDatasetId(null);
             setShowAnalysis(false);
             setActiveSessionId(null);
+
+            // Optional: clear ALL per-session message keys that match our prefix
+            if (typeof window !== "undefined") {
+              const prefix = "analysis_messages_";
+              Object.keys(sessionStorage).forEach((key) => {
+                if (key === "analysis_messages" || key.startsWith(prefix)) {
+                  sessionStorage.removeItem(key);
+                }
+              });
+            }
           }
         }}
         onSelectChat={(chatTitle) => {
@@ -410,7 +443,7 @@ export default function MainInterface() {
             {/* Greeting */}
             <div className="mb-8">
               <h1 className="text-[32px] md:text-[36px] font-semibold text-slate-900 leading-tight">
-                Good Evening, Anurag
+                {greeting}, {userName}
               </h1>
               <p className="mt-1 text-[22px] text-slate-400 leading-tight">
                 Ready to start analyzing?
@@ -492,12 +525,6 @@ export default function MainInterface() {
                   </div>
 
                   <div className="flex items-center gap-2 self-end md:self-auto">
-                    <button className="h-9 w-9 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 cursor-pointer">
-                      <Settings className="w-4 h-4" />
-                    </button>
-                    <button className="h-9 w-9 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 cursor-pointer">
-                      <Sparkles className="w-4 h-4" />
-                    </button>
                     <button
                       className="h-9 w-9 rounded-full bg-slate-900 text-white flex items-center justify-center hover:bg-slate-800 cursor-pointer"
                       onClick={handleSend}

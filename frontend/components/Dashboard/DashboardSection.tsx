@@ -110,8 +110,11 @@ function ChartCard({
 
   const axisBased = isAxisChart(chart.type);
 
+  // 🔒 disable zoom on small cards; zoom only in popup
+  const enableInlineZoom = false;
+
   const handleZoom = (dir: "in" | "out") => {
-    if (!axisBased) return;
+    if (!axisBased || !enableInlineZoom) return;
     const factor = dir === "in" ? 0.7 : 1.3;
     if (fullX) {
       setXRange((prev) => applyZoom(prev, fullX, factor));
@@ -127,7 +130,7 @@ function ChartCard({
   };
 
   const onWheel = (e: React.WheelEvent) => {
-    if (!axisBased) return;
+    if (!axisBased || !enableInlineZoom) return;
     e.preventDefault();
     if (e.deltaY < 0) handleZoom("in");
     else handleZoom("out");
@@ -169,7 +172,6 @@ function ChartCard({
             </>
           )}
 
-          {/* Scale up / expand */}
           <button
             type="button"
             onClick={onExpand}
@@ -179,7 +181,6 @@ function ChartCard({
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
 
-          {/* Delete chart */}
           <button
             type="button"
             onClick={onDelete}
@@ -306,8 +307,11 @@ function ExpandedChartModal({ chart, data, onClose }: ExpandedChartModalProps) {
         </div>
 
         {/* Chart area */}
-        <div className="flex-1 p-4 bg-slate-50 overflow-auto" onWheel={onWheel}>
-          <div className="w-full h-[60vh] min-h-[320px] rounded-xl border border-gray-200 bg-white p-3">
+        <div
+          className="flex-1 p-4 bg-slate-50 overflow-hidden"
+          onWheel={onWheel}
+        >
+          <div className="w-full h-full rounded-xl border border-gray-200 bg-white p-3">
             <ChartFactory
               chart={chart}
               data={data}
@@ -333,7 +337,6 @@ export default function DashboardSection({
   columns,
   chartsFromPrompt,
 }: DashboardSectionProps) {
-  // Derive column types
   const numericCols = useMemo(() => getNumericColumns(data), [data]);
   const categoricalCols = useMemo(() => getCategoricalColumns(data), [data]);
 
@@ -342,7 +345,6 @@ export default function DashboardSection({
   const firstNum = numericCols[0];
   const secondNum = numericCols[1] || numericCols[0];
 
-  // User-added charts (persisted)
   const STORAGE_KEY = "novaprowl_charts_v1";
   const [charts, setCharts] = useState<ChartConfig[]>(() => {
     try {
@@ -428,7 +430,6 @@ export default function DashboardSection({
     [baseCharts, aiCharts, charts]
   );
 
-  // Hidden chart IDs (for delete)
   const [hiddenChartIds, setHiddenChartIds] = useState<string[]>([]);
   const visibleCharts = useMemo(
     () => allCharts.filter((c) => !hiddenChartIds.includes(c.id)),
@@ -436,18 +437,13 @@ export default function DashboardSection({
   );
 
   const handleDeleteChart = (id: string) => {
-    // For persisted user charts, also remove from `charts` state
     setCharts((prev) => prev.filter((c) => c.id !== id));
-    // For defaults / AI charts, hide by ID
     setHiddenChartIds((prev) =>
       prev.includes(id) ? prev : [...prev, id]
     );
   };
 
-  // Expanded chart overlay state
   const [expandedChart, setExpandedChart] = useState<ChartConfig | null>(null);
-
-  // Add chart modal
   const [addOpen, setAddOpen] = useState(false);
 
   const handleCreateChart = (cfg: Omit<ChartConfig, "id">) => {
@@ -520,7 +516,6 @@ export default function DashboardSection({
         categoricalCols={categoricalCols}
       />
 
-      {/* Expanded (scale up) modal */}
       {expandedChart && (
         <ExpandedChartModal
           chart={expandedChart}

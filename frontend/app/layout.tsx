@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "../components/SessionStore";
+import AuthProvider from "../components/AuthProvider";
+import { ToastProvider } from "@/components/ui/use-toast";  // ✅ Added
 
-   const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: "NovaProwl",
@@ -17,10 +19,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={inter.className}
-      >
-        <SessionProvider>{children}</SessionProvider>
+      <body className={inter.className}>
+        <ToastProvider>                      {/* ✅ Added */}
+          <AuthProvider>
+            <SessionProvider>{children}</SessionProvider>
+          </AuthProvider>
+        </ToastProvider>                     {/* ✅ Added */}
       </body>
     </html>
   );

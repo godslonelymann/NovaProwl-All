@@ -973,26 +973,21 @@ export default function DataCleaningPage() {
       <main className="flex-1 flex flex-col min-h-0 min-w-0">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push("/")}
-              className="hidden md:inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            <div>
-              <div className="inline-flex items-center gap-2 px-2 py-1 rounded-full bg-slate-100 text-[11px] font-medium text-slate-600 mb-1">
-                <SlidersHorizontal className="w-3 h-3" />
-                Data Cleaning Tool
-              </div>
-              <h1 className="text-xl font-semibold text-slate-900">
-                Clean & Prepare Your Datasets
-              </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Upload, clean, and edit your datasets directly in the browser.
-              </p>
-            </div>
+          <div className="flex flex-col">
+            
+            <h1 className="text-xl font-semibold text-slate-900">
+              Data Cleaning Tool
+            </h1>
+            <p className="text-xs text-slate-500">
+              Clean and Prepare your Dataset(s)
+            </p>
           </div>
+          <button
+            onClick={() => router.push("/mainInterface")}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-medium hover:bg-slate-800"
+          >
+            Back to Dashboard
+          </button>
         </div>
 
         {/* Body */}

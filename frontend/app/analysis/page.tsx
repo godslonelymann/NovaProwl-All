@@ -1,4 +1,4 @@
-// app/analysis/page.tsx (or pages/analysis.tsx depending on your structure)
+// app/analysis/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -19,26 +19,18 @@ type UploadedDataset = {
   textContent?: string;
 };
 
-const collectColumns = (rows: Row[]): string[] => {
-  if (!rows.length) return [];
-  const keys = new Set<string>();
-  rows.forEach((r) => Object.keys(r || {}).forEach((k) => keys.add(k)));
-  return Array.from(keys);
-};
-
 export default function AnalysisPage() {
-  const [data, setData] = useState<Row[] | null>(null);
-  const [fileName, setFileName] = useState<string>("");
-  const [prompt, setPrompt] = useState<string>("");
   const [allDatasets, setAllDatasets] = useState<UploadedDataset[] | null>(
     null
   );
   const [activeDatasetId, setActiveDatasetId] = useState<string | undefined>(
     undefined
   );
+  const [prompt, setPrompt] = useState<string>("");
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const router = useRouter();
   const { sessions, activeSessionId, setActiveSessionId } = useSessionStore();
@@ -46,84 +38,79 @@ export default function AnalysisPage() {
   const recentChats = sessions.map((s) => s.title);
 
   useEffect(() => {
-    // 1) Preferred: load from persistent session data
-    if (activeSessionId) {
-      const session = sessions.find((s) => s.id === activeSessionId);
-      if (session) {
-        try {
-          const raw = localStorage.getItem(
-            `novaprowl_session_data_v1_${activeSessionId}`
-          );
-          if (raw) {
-            const parsed = JSON.parse(raw) as {
-              datasets?: UploadedDataset[];
-              activeDatasetId?: string;
-              initialPrompt?: string;
-              fileName?: string;
-              data?: Row[];
-            };
+    let cancelled = false;
 
-            if (parsed.datasets && parsed.datasets.length > 0) {
-              setAllDatasets(parsed.datasets);
-              const active =
-                parsed.datasets.find((d) => d.id === parsed.activeDatasetId) ||
-                parsed.datasets[0];
-              setActiveDatasetId(active?.id);
-              setData(active?.rows || null);
-              setFileName(active?.fileName || "");
-              setPrompt(parsed.initialPrompt || session.firstPrompt || "");
-              return;
-            }
+    const loadFromLocalStorage = () => {
+      try {
+        if (typeof window === "undefined") {
+          setLoading(false);
+          return;
+        }
 
-            // legacy single dataset shape
-            if (parsed.data && parsed.fileName) {
-              const legacyColumns = collectColumns(parsed.data);
-              const legacyDataset: UploadedDataset = {
-                id: "legacy-dataset",
-                fileName: parsed.fileName,
-                rows: parsed.data,
-                columns: legacyColumns,
-              };
-              setAllDatasets([legacyDataset]);
-              setActiveDatasetId(legacyDataset.id);
-              setData(parsed.data);
-              setFileName(parsed.fileName);
-              setPrompt(parsed.initialPrompt || session.firstPrompt || "");
-              return;
-            }
-          }
-        } catch (e) {
-          console.error("Failed to load analysis data from localStorage", e);
+        if (!activeSessionId) {
+          setLoading(false);
+          return;
+        }
+
+        const storageKey = `novaprowl_session_data_v1_${activeSessionId}`;
+        const raw = localStorage.getItem(storageKey);
+
+        if (!raw) {
+          setLoading(false);
+          return;
+        }
+
+        const parsed = JSON.parse(raw) as {
+          datasets?: UploadedDataset[];
+          activeDatasetId?: string;
+          initialPrompt?: string;
+        };
+
+        if (
+          !parsed ||
+          !Array.isArray(parsed.datasets) ||
+          parsed.datasets.length === 0
+        ) {
+          setLoading(false);
+          return;
+        }
+
+        if (cancelled) return;
+
+        setAllDatasets(parsed.datasets);
+
+        const active =
+          parsed.datasets.find((d) => d.id === parsed.activeDatasetId) ||
+          parsed.datasets[0];
+
+        setActiveDatasetId(active?.id);
+        setPrompt(typeof parsed.initialPrompt === "string" ? parsed.initialPrompt : "");
+      } catch (e) {
+        console.error("Failed to load analysis data from localStorage", e);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
         }
       }
-    }
+    };
 
-    // 2) Fallback: old sessionStorage behaviour
-    try {
-      const raw = sessionStorage.getItem("analysis_dataset");
-      const file = sessionStorage.getItem("analysis_file");
-      const q = sessionStorage.getItem("analysis_prompt") || "";
+    loadFromLocalStorage();
 
-      if (raw && file) {
-        const parsed: Row[] = JSON.parse(raw);
-        const legacyColumns = collectColumns(parsed);
-        const legacyDataset: UploadedDataset = {
-          id: "legacy-dataset",
-          fileName: file,
-          rows: parsed,
-          columns: legacyColumns,
-        };
-        setAllDatasets([legacyDataset]);
-        setActiveDatasetId(legacyDataset.id);
-        setData(parsed);
-        setFileName(file);
-        setPrompt(q);
-      }
-    } catch (e) {
-      console.error("Failed to load analysis data from sessionStorage", e);
-    }
-  }, [activeSessionId, sessions]);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId]);
 
+  // ⏳ Loading state while we read from localStorage
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#f4f2ee] text-slate-600 text-sm">
+        Loading dataset…
+      </div>
+    );
+  }
+
+  // ✅ We have datasets + an active one → render full analysis experience
   if (allDatasets && allDatasets.length && activeDatasetId) {
     return (
       <AnalysisPanel
@@ -134,6 +121,7 @@ export default function AnalysisPage() {
     );
   }
 
+  // ❌ Fallback: nothing loaded → show existing "No dataset loaded" screen
   return (
     <div className="max-h-screen bg-[#f4f2ee] text-slate-800 flex">
       <Sidebar
@@ -146,7 +134,7 @@ export default function AnalysisPage() {
         onSpaceChange={(label) => {
           if (label === "Chat") {
             setActiveSessionId(null);
-            router.push("/");
+            router.push("/mainInterface");
           }
         }}
         onSelectChat={(chatTitle) => {
@@ -162,7 +150,8 @@ export default function AnalysisPage() {
             No dataset loaded
           </h1>
           <p className="text-sm text-slate-600">
-            Please go back to the home screen, upload a dataset, and ask a question.
+            Please go back to the home screen, upload a dataset, and ask a
+            question.
           </p>
         </div>
       </main>

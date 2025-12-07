@@ -1,6 +1,5 @@
 "use client";
-import Link from 'next/link'
-
+import Link from "next/link";
 
 import React, { useEffect, useState } from "react";
 import {
@@ -9,14 +8,19 @@ import {
   ChevronUp,
   ChevronDown,
   MessageCircle,
-  Compass,
-  BookOpen,
   FunctionSquare,
   FileText,
-  PlugZap,
+  Layers,
   Pencil,
   Trash2,
+  User,
+  Settings as SettingsIcon,
+  LogOut,
 } from "lucide-react";
+import { signOut } from "next-auth/react";
+import { useToast } from "@/components/ui/use-toast"; // ✅ adjust path if needed
+import { useRouter } from "next/navigation";
+import { useSessionStore } from "./SessionStore";
 
 type SidebarProps = {
   sidebarOpen: boolean;
@@ -35,16 +39,13 @@ type SidebarProps = {
   // when a recent chat is clicked
   onSelectChat?: (chatTitle: string) => void;
 
-  onChatsEmpty?: () => void;    // ✅ NEW
-
+  onChatsEmpty?: () => void; // ✅ NEW
 };
 
-const spaces = [
-  { icon: MessageCircle, label: "Chat" },
-];
+const spaces = [{ icon: MessageCircle, label: "Chat" }];
 
 const tools = [
-  { icon: FunctionSquare, label: "OCR Tool" , link: "/OCRTool"},
+  { icon: FunctionSquare, label: "OCR Tool", link: "ocrTool" },
   { icon: FileText, label: "Data Cleaner Tool", link: "dataCleaning" },
 ];
 
@@ -64,8 +65,16 @@ export default function Sidebar({
   onSelectChat,
   onChatsEmpty,
 }: SidebarProps) {
+  const { toast } = useToast();
+  const router = useRouter();
+  const { setActiveSessionId } = useSessionStore();
+
   // ✅ Local sidebar chat titles (independent of parent state)
   const [chatTitles, setChatTitles] = useState<string[]>([]);
+
+  // ✅ Inline rename state (replaces window.prompt)
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingValue, setEditingValue] = useState("");
 
   // ✅ Load from localStorage OR initial recentChats
   useEffect(() => {
@@ -105,40 +114,67 @@ export default function Sidebar({
     }
   }, [chatTitles]);
 
-  // Rename a chat title
+  // Start rename (no prompt, just set editing state)
   const handleRenameChat = (index: number) => {
-    const current = chatTitles[index];
-    const next = window.prompt("Rename chat", current || "Untitled");
-    if (next === null) return; // cancelled
-    const trimmed = next.trim();
-    if (!trimmed) return;
+    const current = chatTitles[index] ?? "";
+    setEditingIndex(index);
+    setEditingValue(current);
+  };
+
+  // Apply rename when user confirms (Enter / blur)
+  const commitRename = () => {
+    if (editingIndex === null) return;
+    const trimmed = editingValue.trim();
+    if (!trimmed) {
+      // If empty, just cancel without changing
+      setEditingIndex(null);
+      setEditingValue("");
+      return;
+    }
 
     setChatTitles((prev) => {
       const copy = [...prev];
-      copy[index] = trimmed;
+      copy[editingIndex] = trimmed;
       return copy;
     });
+
+    setEditingIndex(null);
+    setEditingValue("");
   };
 
-  // Delete a chat title
+  // Cancel rename (Esc)
+  const cancelRename = () => {
+    setEditingIndex(null);
+    setEditingValue("");
+  };
+
+  // Delete a chat title (no window.confirm, show toast instead)
   const handleDeleteChat = (index: number) => {
-  const title = chatTitles[index];
-  const ok = window.confirm(
-    `Delete chat "${title || "Untitled"}"? This cannot be undone.`
-  );
-  if (!ok) return;
+    const title = chatTitles[index] || "Untitled chat";
 
-  setChatTitles((prev) => {
-    const updated = prev.filter((_, i) => i !== index);
+    setChatTitles((prev) => {
+      const updated = prev.filter((_, i) => i !== index);
 
-    // 🔥 NEW: if no chats left → notify parent to redirect
-    if (updated.length === 0 && onChatsEmpty) {
-      setTimeout(() => onChatsEmpty(), 50);
+      // 🔥 if no chats left → notify parent to redirect
+      if (updated.length === 0 && onChatsEmpty) {
+        setTimeout(() => onChatsEmpty(), 50);
+      }
+
+      return updated;
+    });
+
+    // ✅ Show toast notification instead of confirm()
+    toast({
+      title: "Chat deleted",
+      description: `"${title}" has been removed from recent chats.`,
+    });
+
+    // If we were editing this chat, clear editing state
+    if (editingIndex === index) {
+      setEditingIndex(null);
+      setEditingValue("");
     }
-
-    return updated;
-  });
-};
+  };
 
   return (
     <div
@@ -159,11 +195,8 @@ export default function Sidebar({
 
       {/* Logo / top spacing */}
       <div className="flex items-center gap-2 px-4 pt-4 pb-6">
-       
         {sidebarOpen && (
-          <Link 
-          href={"/mainInterface"}
-          className="text-sm font-semibold text-slate-700">
+          <Link href={"/mainInterface"} className="text-sm font-semibold text-slate-700">
             NovaProwl
           </Link>
         )}
@@ -171,11 +204,7 @@ export default function Sidebar({
 
       {/* Spaces */}
       <div className="px-3">
-        {sidebarOpen && (
-          <p className="text-sm text-slate-700 mb-1">
-            Spaces
-          </p>
-        )}
+        {sidebarOpen && <p className="text-sm text-slate-700 mb-1">Spaces</p>}
         <nav className="space-y-1 mb-4">
           {spaces.map((item) => {
             const Icon = item.icon;
@@ -185,11 +214,23 @@ export default function Sidebar({
               <button
                 key={item.label}
                 className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm cursor-pointer transition-colors
-                  ${isActive
-                    ? "bg-slate-200 text-slate-900"  // 🔹 light gray active
-                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                  ${
+                    isActive
+                      ? "bg-slate-200 text-slate-900" // 🔹 light gray active
+                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                   }`}
-                onClick={() => onSpaceChange?.(item.label)}
+                onClick={() => {
+                  onSpaceChange?.(item.label);
+                  if (item.label === "Chat") {
+                    const newSessionId = "session_" + Date.now().toString();
+                    setActiveSessionId(newSessionId);
+                    sessionStorage.setItem(
+                      "analysis_messages_" + newSessionId,
+                      "[]"
+                    );
+                    router.push("/mainInterface");
+                  }
+                }}
               >
                 <Icon className="w-4 h-4" />
                 {sidebarOpen && <span>{item.label}</span>}
@@ -201,11 +242,7 @@ export default function Sidebar({
 
       {/* Tools */}
       <div className="px-3">
-        {sidebarOpen && (
-          <p className="text-sm text-slate-700 mb-1">
-            Tools
-          </p>
-        )}
+        {sidebarOpen && <p className="text-sm text-slate-700 mb-1">Tools</p>}
         <nav className="space-y-1 mb-4">
           {tools.map((item) => {
             const Icon = item.icon;
@@ -216,9 +253,10 @@ export default function Sidebar({
                 href={item.link}
                 key={item.label}
                 className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm cursor-pointer transition-colors
-                  ${isActive
-                    ? "bg-slate-200 text-slate-900"  // 🔹 light gray active
-                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                  ${
+                    isActive
+                      ? "bg-slate-200 text-slate-900" // 🔹 light gray active
+                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                   }`}
                 onClick={() => onToolClick?.(item.label)}
               >
@@ -232,47 +270,63 @@ export default function Sidebar({
 
       {/* Recent chats */}
       <div className="px-3 flex-1 overflow-hidden">
-        {sidebarOpen && chatTitles.length > 0 && (  /* 🔹 only show when there are chats */
+        {sidebarOpen && chatTitles.length > 0 && (
           <>
-            <p className="text-sm text-slate-700 mb-1">
-              Recent chats
-            </p>
+            <p className="text-sm text-slate-700 mb-1">Recent chats</p>
             <div className="space-y-1 text-sm text-slate-500 overflow-y-auto pr-1">
-              {chatTitles.map((chat, idx) => (
-                <div
-                  key={`${chat}-${idx}`}
-                  className="w-full flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-slate-100"
-                >
-                  {/* Main clickable area to select chat */}
-                  <button
-                    className="flex-1 truncate text-left px-1 py-1 hover:text-slate-700"
-                    title={chat}
-                    onClick={() => onSelectChat?.(chat)}
-                  >
-                    {chat || "Untitled chat"}
-                  </button>
+              {chatTitles.map((chat, idx) => {
+                const isEditing = editingIndex === idx;
 
-                  {/* Rename button */}
-                  <button
-                    className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-slate-200 text-slate-500"
-                    title="Rename chat"
-                    type="button"
-                    onClick={() => handleRenameChat(idx)}
+                return (
+                  <div
+                    key={`${chat}-${idx}`}
+                    className="w-full flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-slate-100"
                   >
-                    <Pencil className="w-3 h-3" />
-                  </button>
+                    {/* Main clickable area to select chat OR inline edit */}
+                    {isEditing ? (
+                      <input
+                        className="flex-1 truncate text-left px-1 py-1 text-sm border border-slate-300 rounded-md bg-white"
+                        value={editingValue}
+                        autoFocus
+                        onChange={(e) => setEditingValue(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitRename();
+                          if (e.key === "Escape") cancelRename();
+                        }}
+                      />
+                    ) : (
+                      <button
+                        className="flex-1 truncate text-left px-1 py-1 hover:text-slate-700"
+                        title={chat}
+                        onClick={() => onSelectChat?.(chat)}
+                      >
+                        {chat || "Untitled chat"}
+                      </button>
+                    )}
 
-                  {/* Delete button */}
-                  <button
-                    className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-slate-200 text-slate-500"
-                    title="Delete chat"
-                    type="button"
-                    onClick={() => handleDeleteChat(idx)}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
+                    {/* Rename button */}
+                    <button
+                      className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-slate-200 text-slate-500"
+                      title="Rename chat"
+                      type="button"
+                      onClick={() => handleRenameChat(idx)}
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+
+                    {/* Delete button */}
+                    <button
+                      className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-slate-200 text-slate-500"
+                      title="Delete chat"
+                      type="button"
+                      onClick={() => handleDeleteChat(idx)}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -302,16 +356,25 @@ export default function Sidebar({
 
               {accountOpen && (
                 <div className="absolute bottom-14 left-0 w-full p-3 rounded-xl bg-white shadow-lg border border-slate-200 text-sm text-slate-700 overflow-hidden z-20">
-                  <button className="block w-full text-left px-3 py-2 hover:bg-slate-50">
+                  <Link
+                    href="/profile"
+                    className="block w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <User className="w-4 h-4" />
                     Profile
-                  </button>
-                  <button className="block w-full text-left px-3 py-2 hover:bg-slate-50">
-                    Billing
-                  </button>
-                  <button className="block w-full text-left px-3 py-2 hover:bg-slate-50">
+                  </Link>
+                  <Link
+                    href="/settings"
+                    className="block w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <SettingsIcon className="w-4 h-4" />
                     Settings
-                  </button>
-                  <button className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-red-500">
+                  </Link>
+                  <button
+                    className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-red-500 flex items-center gap-2"
+                    onClick={() => signOut({ callbackUrl: "/login" })}
+                  >
+                    <LogOut className="w-4 h-4" />
                     Logout
                   </button>
                 </div>
