@@ -1,23 +1,22 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { useSessionStore } from "@/components/SessionStore";
+import { LogoutButton } from "@/components/LogoutButton";
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+
   const { sessions, setActiveSessionId } = useSessionStore();
   const recentChats = sessions.map((s) => s.title);
 
-  const [appearance, setAppearance] = useState<"Light" | "Dark" | "System">(
-    "Light"
-  );
-  const [notifyMatches, setNotifyMatches] = useState(true);
-  const [notifyUpdates, setNotifyUpdates] = useState(true);
-  const [showTips, setShowTips] = useState(true);
+  // ✅ Local state for sidebar & account dropdown so Sidebar can actually work
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -25,22 +24,27 @@ export default function SettingsPage() {
     }
   }, [status, router]);
 
+  const user = session?.user;
+
   return (
     <div className="h-screen bg-[#f4f2ee] text-slate-800 flex overflow-hidden">
       <Sidebar
-        sidebarOpen={true}
-        setSidebarOpen={() => {}}
-        accountOpen={false}
-        setAccountOpen={() => {}}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        accountOpen={accountOpen}
+        setAccountOpen={setAccountOpen}
         recentChats={recentChats}
-        activeSpace="Settings"
+        // visually we can still treat this as "Chat" space for now
+        activeSpace="Chat"
         onSpaceChange={(label) => {
-          if (label === "Chat") router.push("/mainInterface");
+          if (label === "Chat") {
+            router.push("/mainInterface");
+          }
         }}
         onSelectChat={(chatTitle) => {
-          const session = sessions.find((s) => s.title === chatTitle);
-          if (!session) return;
-          setActiveSessionId(session.id);
+          const sess = sessions.find((s) => s.title === chatTitle);
+          if (!sess) return;
+          setActiveSessionId(sess.id);
           router.push("/analysis");
         }}
       />
@@ -48,12 +52,11 @@ export default function SettingsPage() {
       <main className="flex-1 flex flex-col min-h-0">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white flex-shrink-0">
           <div className="flex flex-col">
-            
             <h1 className="text-xl font-semibold text-slate-900">
               Settings
             </h1>
             <p className="text-xs text-slate-500">
-              Update how NovaProwl behaves for your account.
+              View your NovaProwl identity and account details.
             </p>
           </div>
           <button
@@ -64,7 +67,8 @@ export default function SettingsPage() {
           </button>
         </div>
 
-       
+        {/* You can add more profile content here if you want */}
+        
       </main>
     </div>
   );

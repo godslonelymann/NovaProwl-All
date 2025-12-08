@@ -117,20 +117,26 @@ export default function AnalysisPanel({
   sessionId,
 }: AnalysisPanelProps) {
   const router = useRouter();
-  const { setActiveSessionId } = useSessionStore();
+  const { sessions, setActiveSessionId } = useSessionStore();
 
   // Sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [recentChats] = useState<string[]>([]);
+  const recentChats = sessions.map((s) => s.title);
   const [activeSpace, setActiveSpace] = useState<string>("Chat");
 
-  // 🔹 MULTI-DATASET: initialise from props
-  const [uploadedDatasets] = useState<UploadedDataset[]>(datasets || []);
+  // 🔹 MULTI-DATASET: always reflect latest props (no stale local copy)
+  const uploadedDatasets: UploadedDataset[] = datasets || [];
 
   const [activeDatasetId, setActiveDatasetId] = useState<string>(
-    incomingActiveDatasetId || uploadedDatasets[0]?.id
+    incomingActiveDatasetId || uploadedDatasets[0]?.id || ""
   );
+
+  // keep local activeDatasetId in sync when parent/session changes
+  useEffect(() => {
+    const fallbackId = uploadedDatasets[0]?.id || "";
+    setActiveDatasetId(incomingActiveDatasetId || fallbackId);
+  }, [incomingActiveDatasetId, uploadedDatasets]);
 
   const activeDataset = useMemo(
     () =>
@@ -249,19 +255,8 @@ export default function AnalysisPanel({
 
   // ---------------- CHAT STATE (logic-only changes here) ----------------
 
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    try {
-      if (typeof window !== "undefined") {
-        let restored: ChatMessage[] = [];
-        const stored = sessionStorage.getItem(storageKey);
-        if (stored) restored = JSON.parse(stored);
-        return restored || [];
-      }
-    } catch {
-      // ignore parse errors
-    }
-    return [];
-  });
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hydratedFromStorage, setHydratedFromStorage] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -276,6 +271,11 @@ export default function AnalysisPanel({
 
   const [chatOpen, setChatOpen] = useState(true);
   const [chartsFromPrompt, setChartsFromPrompt] = useState<BackendChart[]>([]);
+
+  // when switching sessions, clear AI-generated charts so each session has its own
+  useEffect(() => {
+    setChartsFromPrompt([]);
+  }, [sessionId]);
 
   // chart config from prompt (same as before, uses `columns`)
   function buildChartConfigFromPrompt(prompt: string, columns: string[]) {
@@ -369,13 +369,18 @@ export default function AnalysisPanel({
 
   // load persisted messages (if any) from sessionStorage for this session
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") {
+      setHydratedFromStorage(true);
+      return;
+    }
+    let restored = false;
     try {
       const storedMsgs = sessionStorage.getItem(storageKey);
       if (storedMsgs) {
         const parsed: ChatMessage[] = JSON.parse(storedMsgs);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setMessages(parsed);
+          restored = true;
         }
       }
     } catch (err) {
@@ -384,7 +389,15 @@ export default function AnalysisPanel({
         err
       );
     }
-  }, [storageKey]);
+    if (!restored) {
+      setMessages([]);
+    }
+    setHydratedFromStorage(true);
+  }, [storageKey, sessionId]);
+
+  useEffect(() => {
+    initialPromptSentRef.current = false;
+  }, [sessionId]);
 
   // persist messages
   useEffect(() => {
@@ -402,13 +415,17 @@ export default function AnalysisPanel({
   // - we have an `initialPrompt`
   useEffect(() => {
     if (!initialPrompt) return;
+    if (!hydratedFromStorage) return;
     if (initialPromptSentRef.current) return;
-    if (messages.length > 0) return;
+    if (messages.length > 0) {
+      initialPromptSentRef.current = true;
+      return;
+    }
 
     initialPromptSentRef.current = true;
     sendPrompt(initialPrompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPrompt, messages]);
+  }, [initialPrompt, hydratedFromStorage, messages]);
 
   // keep chat scrolled to bottom
   useEffect(() => {
@@ -635,26 +652,20 @@ export default function AnalysisPanel({
         onSpaceChange={(label) => {
           setActiveSpace(label);
           if (label === "Chat") {
-            // 🔥 Always start a completely fresh chat
-
-            // 1) Clear stored messages for this session (if any)
-            try {
-              if (typeof window !== "undefined") {
-                const key = getMessagesStorageKey(sessionId);
-                sessionStorage.removeItem(key);
-              }
-            } catch (err) {
-              console.error("Failed to clear analysis messages on Chat click", err);
-            }
-
-            // 2) Clear active session so MainInterface starts a brand new one
             setActiveSessionId(null);
-
-            // 3) Go to mainInterface (fresh entry point)
             router.push("/mainInterface");
           }
         }}
-        onChatsEmpty={() => router.push("/mainInterface")}
+        onSelectChat={(chatTitle) => {
+          const session = sessions.find((s) => s.title === chatTitle);
+          if (!session) return;
+          setActiveSessionId(session.id);
+          router.push("/analysis");
+        }}
+        onChatsEmpty={() => {
+          setActiveSessionId(null);
+          router.push("/mainInterface");
+        }}
       />
 
       {/* RIGHT: header + resizable layout */}

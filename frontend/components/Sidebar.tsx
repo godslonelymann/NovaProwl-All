@@ -18,7 +18,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
-import { useToast } from "@/components/ui/use-toast"; // ✅ adjust path if needed
+import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from "next/navigation";
 import { useSessionStore } from "./SessionStore";
 
@@ -29,17 +29,15 @@ type SidebarProps = {
   setAccountOpen: (open: boolean) => void;
   recentChats: string[];
 
-  // 🔹 NEW (optional) dynamics
-  activeSpace?: string; // "Chat" | "Explore" | "Playbooks"
+  activeSpace?: string;
   onSpaceChange?: (spaceLabel: string) => void;
 
   activeTool?: string;
   onToolClick?: (toolLabel: string) => void;
 
-  // when a recent chat is clicked
   onSelectChat?: (chatTitle: string) => void;
 
-  onChatsEmpty?: () => void; // ✅ NEW
+  onChatsEmpty?: () => void;
 };
 
 const spaces = [{ icon: MessageCircle, label: "Chat" }];
@@ -67,16 +65,19 @@ export default function Sidebar({
 }: SidebarProps) {
   const { toast } = useToast();
   const router = useRouter();
-  const { setActiveSessionId } = useSessionStore();
 
-  // ✅ Local sidebar chat titles (independent of parent state)
+  // ⬅️ UPDATED: load all required functions from session store
+  const {
+    sessions,
+    activeSessionId,
+    setActiveSessionId,
+    deleteSession,
+  } = useSessionStore();
+
   const [chatTitles, setChatTitles] = useState<string[]>([]);
-
-  // ✅ Inline rename state (replaces window.prompt)
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState("");
 
-  // ✅ Load from localStorage OR initial recentChats
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -84,29 +85,27 @@ export default function Sidebar({
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        // use stored chats only if it's a non-empty array
         if (Array.isArray(parsed) && parsed.length > 0) {
           setChatTitles(parsed);
           return;
         }
       }
 
-      // fallback to prop recentChats when no valid stored chats
       if (recentChats && recentChats.length > 0) {
         setChatTitles(recentChats);
       }
     } catch (err) {
       console.error("Failed to load sidebar chats:", err);
-      // on error, still try to use recentChats
+
       if (recentChats && recentChats.length > 0) {
         setChatTitles(recentChats);
       }
     }
-  }, [recentChats]); // 🔹 depend on recentChats so first title shows up
+  }, [recentChats]);
 
-  // Persist sidebar chat titles
   useEffect(() => {
     if (typeof window === "undefined") return;
+
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(chatTitles));
     } catch (err) {
@@ -114,19 +113,17 @@ export default function Sidebar({
     }
   }, [chatTitles]);
 
-  // Start rename (no prompt, just set editing state)
   const handleRenameChat = (index: number) => {
     const current = chatTitles[index] ?? "";
     setEditingIndex(index);
     setEditingValue(current);
   };
 
-  // Apply rename when user confirms (Enter / blur)
   const commitRename = () => {
     if (editingIndex === null) return;
+
     const trimmed = editingValue.trim();
     if (!trimmed) {
-      // If empty, just cancel without changing
       setEditingIndex(null);
       setEditingValue("");
       return;
@@ -142,20 +139,41 @@ export default function Sidebar({
     setEditingValue("");
   };
 
-  // Cancel rename (Esc)
   const cancelRename = () => {
     setEditingIndex(null);
     setEditingValue("");
   };
 
-  // Delete a chat title (no window.confirm, show toast instead)
+  // ⬅️ FULLY UPDATED DELETE LOGIC
   const handleDeleteChat = (index: number) => {
     const title = chatTitles[index] || "Untitled chat";
 
+    // 1️⃣ Match session by title
+    const sessionToDelete = sessions.find((s) => s.title === title);
+
+    if (sessionToDelete) {
+      const sessionId = sessionToDelete.id;
+
+      // 2️⃣ Remove per-session dataset + metadata
+      localStorage.removeItem(`novaprowl_session_data_v1_${sessionId}`);
+
+      // 3️⃣ Remove per-session chat messages
+      sessionStorage.removeItem(`analysis_messages_${sessionId}`);
+
+      // 4️⃣ Remove session from SessionStore
+      deleteSession(sessionId);
+
+      // 5️⃣ If session was active, clear it
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(null);
+        localStorage.removeItem("novaprowl_active_session");
+      }
+    }
+
+    // 6️⃣ Remove item from sidebar list
     setChatTitles((prev) => {
       const updated = prev.filter((_, i) => i !== index);
 
-      // 🔥 if no chats left → notify parent to redirect
       if (updated.length === 0 && onChatsEmpty) {
         setTimeout(() => onChatsEmpty(), 50);
       }
@@ -163,13 +181,13 @@ export default function Sidebar({
       return updated;
     });
 
-    // ✅ Show toast notification instead of confirm()
+    // 7️⃣ Toast
     toast({
       title: "Chat deleted",
       description: `"${title}" has been removed from recent chats.`,
     });
 
-    // If we were editing this chat, clear editing state
+    // 8️⃣ Reset rename state if needed
     if (editingIndex === index) {
       setEditingIndex(null);
       setEditingValue("");
@@ -193,10 +211,13 @@ export default function Sidebar({
         )}
       </button>
 
-      {/* Logo / top spacing */}
+      {/* Logo */}
       <div className="flex items-center gap-2 px-4 pt-4 pb-6">
         {sidebarOpen && (
-          <Link href={"/mainInterface"} className="text-sm font-semibold text-slate-700">
+          <Link
+            href={"/mainInterface"}
+            className="text-sm font-semibold text-slate-700"
+          >
             NovaProwl
           </Link>
         )}
@@ -216,13 +237,14 @@ export default function Sidebar({
                 className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm cursor-pointer transition-colors
                   ${
                     isActive
-                      ? "bg-slate-200 text-slate-900" // 🔹 light gray active
+                      ? "bg-slate-200 text-slate-900"
                       : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                   }`}
                 onClick={() => {
                   onSpaceChange?.(item.label);
                   if (item.label === "Chat") {
-                    const newSessionId = "session_" + Date.now().toString();
+                    const newSessionId =
+                      "session_" + Date.now().toString();
                     setActiveSessionId(newSessionId);
                     sessionStorage.setItem(
                       "analysis_messages_" + newSessionId,
@@ -255,7 +277,7 @@ export default function Sidebar({
                 className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm cursor-pointer transition-colors
                   ${
                     isActive
-                      ? "bg-slate-200 text-slate-900" // 🔹 light gray active
+                      ? "bg-slate-200 text-slate-900"
                       : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                   }`}
                 onClick={() => onToolClick?.(item.label)}
@@ -268,7 +290,7 @@ export default function Sidebar({
         </nav>
       </div>
 
-      {/* Recent chats */}
+      {/* Recent Chats */}
       <div className="px-3 flex-1 overflow-hidden">
         {sidebarOpen && chatTitles.length > 0 && (
           <>
@@ -282,7 +304,6 @@ export default function Sidebar({
                     key={`${chat}-${idx}`}
                     className="w-full flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-slate-100"
                   >
-                    {/* Main clickable area to select chat OR inline edit */}
                     {isEditing ? (
                       <input
                         className="flex-1 truncate text-left px-1 py-1 text-sm border border-slate-300 rounded-md bg-white"
@@ -305,21 +326,17 @@ export default function Sidebar({
                       </button>
                     )}
 
-                    {/* Rename button */}
                     <button
                       className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-slate-200 text-slate-500"
                       title="Rename chat"
-                      type="button"
                       onClick={() => handleRenameChat(idx)}
                     >
                       <Pencil className="w-3 h-3" />
                     </button>
 
-                    {/* Delete button */}
                     <button
                       className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-slate-200 text-slate-500"
                       title="Delete chat"
-                      type="button"
                       onClick={() => handleDeleteChat(idx)}
                     >
                       <Trash2 className="w-3 h-3" />
@@ -332,7 +349,7 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Account Section */}
+      {/* Account */}
       <div className="px-3 py-3 border-t border-slate-200">
         {sidebarOpen ? (
           <div className="space-y-2">
@@ -363,6 +380,7 @@ export default function Sidebar({
                     <User className="w-4 h-4" />
                     Profile
                   </Link>
+
                   <Link
                     href="/settings"
                     className="block w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2"
@@ -370,9 +388,14 @@ export default function Sidebar({
                     <SettingsIcon className="w-4 h-4" />
                     Settings
                   </Link>
+
                   <button
                     className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-red-500 flex items-center gap-2"
-                    onClick={() => signOut({ callbackUrl: "/login" })}
+                    onClick={() =>
+                      signOut({
+                        callbackUrl: "/login",
+                      })
+                    }
                   >
                     <LogOut className="w-4 h-4" />
                     Logout
